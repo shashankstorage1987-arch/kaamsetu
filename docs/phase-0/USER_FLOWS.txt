@@ -1,0 +1,125 @@
+===============================================================================
+KAAMSETU — END-TO-END USER JOURNEYS & SYSTEM FLOWS (REVISED v1.4)
+===============================================================================
+Document Version: 1.4 (Reconciled Phase 0.4 Final Reconciliation Pass)
+Authoritative Inputs: KaamSetu Wireframes v7.0 & Technical Build Specification v1.0
+Target Location: /docs/phase-0/USER_FLOWS.txt
+
+===============================================================================
+1. WORKER END-TO-END JOURNEY
+===============================================================================
+
+JOURNEY STEPS:
+Signup -> Onboarding -> Preferences -> Availability Toggle -> Home -> Match Notification -> Job Detail -> Express Interest -> My Applications -> Hire Confirmation Prompt -> Hire Confirmed -> Self-Profile View / Edit Profile
+
+-------------------------------------------------------------------------------
+1.1 HAPPY PATH
+-------------------------------------------------------------------------------
+1. Worker opens app at `kaamsetu.app/login` (1.0), taps "Sign Up" -> `kaamsetu.app/signup` (1.0b).
+2. Selects "Join as a Worker" -> enters Full Name, Phone, 6-digit PIN, Aadhaar ID (1.1).
+3. System verifies phone uniqueness, hashes PIN, creates `users` record (storing `aadhaar_verified = true` and `aadhaar_ref_id` ONLY; raw Aadhaar discarded), returns JWT session.
+4. Worker fills Experience form (1.2): total experience, trade (Electrical), profession (Helper), shop name, languages.
+5. Worker enters Address (1.3): Street, locality, city (Noida), pincode. System geocodes address to PostGIS location.
+6. Worker sets Preferences (1.4): preferred salary, distance, sets Available Now switch ON as an initial profile preference (`is_available = true`).
+7. System prompts for Location (11.2) and Notification (11.3) permissions; worker responds (handles UI state in Phase 1; FCM token registered in `user_devices` in Phase 7).
+8. Worker lands on Home (2.1) displaying sectioned recommendations: "Best Match Today" (Sharma Electricals 88%), "Closest", "Highest Salary".
+9. Worker receives FCM Push Match Notification (2.3) when a matching job is posted.
+10. Worker taps notification / job card -> opens Job Detail (2.4) displaying 5-factor Match Intelligence breakdown and shift (Day/Night).
+11. Worker taps "I'm Interested" primary CTA. System creates `job_interests` row with snapshotted match score (88%) and updates employer's hiring funnel.
+12. Worker navigates to My Applications (10.1) displaying application status ("Interested").
+13. Employer selects worker for hiring. Worker receives Hire Confirmation prompt (9.1) on Home screen.
+14. Worker taps "Yes, I joined" (9.1). System updates `hire_confirmations` status to CONFIRMED and displays success screen (9.2), updating "Recently completed hires" dynamic count on Skill Passport.
+15. Worker taps PROFILE bottom-nav tab on Home (2.1) -> opens Skill Passport (4.2 self-view) displaying "Your Skill Passport (Your Profile)" banner. Contact Reveal and Report links are hidden. Prominent "Edit Profile" button routes to Work Experience (1.2 edit mode).
+
+-------------------------------------------------------------------------------
+1.2 EDGE CASE & EXCEPTION PATHS FOR WORKER
+-------------------------------------------------------------------------------
+- Validation Failure: Worker enters mismatched PIN or invalid Aadhaar format during signup (1.1). Form displays inline red error text; submission blocked until corrected.
+- Empty State: Worker navigates to My Applications (10.1) with 0 previous applications. System renders 11.4 empty state ("You haven't shown interest in any jobs yet") with "Go to Home" CTA.
+- Availability Auto-Expiry: 12 hours elapse without refresh. Server query treats worker as unavailable. Home screen switches to 2.2 ("Not available — auto-expired") with banner prompt to turn switch back ON.
+- Permission Denial: Worker denies Location (11.2) or Notification (11.3) permission. System saves preference and lands worker on Home; location defaults to stored profile address.
+- Offline State: Network drops while browsing Home. System renders 11.5 offline banner ("You're offline. Showing last saved results..."), labels cards "(cached)", and disables availability toggle switch.
+- Session Timeout: JWT expires while worker is idle. Next API call returns HTTP 401. System redirects to 11.6 Session Timeout screen. Entering PIN re-authenticates and restores worker context.
+
+===============================================================================
+2. EMPLOYER END-TO-END JOURNEY
+===============================================================================
+
+JOURNEY STEPS:
+Signup -> Business Profile -> Address -> Search Nearby Skilled Workers (Primary) -> Filters -> Skill Passport Inspection -> Contact Reveal -> (Fallback: Post Job Need / Edit Job) -> Live Active Search -> Select Hired Worker -> Hire Confirmation -> Profile Edit
+
+-------------------------------------------------------------------------------
+2.1 HAPPY PATH
+-------------------------------------------------------------------------------
+1. Employer opens app (1.0), taps "Sign Up" -> selects "Join as an Employer" (1.0b).
+2. Fills Business Name, Owner Name, Phone, 6-digit PIN (3.1). System creates employer user account.
+3. Fills Business Details (3.2): trade, years in business, typical roles hired, optional shop photo.
+4. Fills Business Address (3.3): locality, city, pincode. System geocodes location as search center point.
+5. Approves location & notification permissions (11.2, 11.3).
+6. System immediately routes employer to Search Nearby Skilled Workers (4.1) — the primary action, pre-filtered by employer's business trade.
+7. Employer filters by Trade (Electrical), Profession (Helper), Available Now, Verified chips. Results display scored worker cards.
+8. Employer taps worker card (Raj Kumar) -> opens Skill Passport (4.2 employer view) displaying core skills, derived shop categories ("Electrical"), experience, previous employers, dynamic completed hires count (2), and distance.
+9. Employer taps "View Contact Number" (4.2). System verifies auth, reveals unmasked phone number (+919876543210), and writes an `audit_logs` record.
+10. Employer calls worker directly and agrees on terms.
+11. (Fallback Path): If search yielded zero workers (4.3), employer taps "Widen Search" (advancing radius: 1km -> 3km -> 5km -> 10km max). If still zero workers at 10km cap, employer taps "Post a Job Need Instead" -> fills Job Form (5.1 with mandatory shift selection) -> submits. System creates active job, notifies nearby workers, and opens Active Search Progress (5.2) with live hiring funnel counts.
+12. Employer opens Dashboard (6.1) -> selects job manage (6.2). To adjust parameters, employer taps "Edit Job" -> pre-filled modal updates salary/shift/timing/radius via `PATCH /api/v1/jobs/{id}` (writes `JOB_UPDATED` audit log).
+13. Employer taps "Close Job" (6.3) -> selects "Hired someone from KaamSetu" -> selects Raj Kumar (6.4) -> taps "Confirm Hire & Close Job".
+14. System updates job status to CLOSED and creates pending `hire_confirmations` record.
+15. Employer taps PROFILE bottom-nav tab -> opens Business Details (3.2) and Business Address (3.3) in pre-filled edit mode, allowing instant business updates.
+
+-------------------------------------------------------------------------------
+2.2 EDGE CASE & EXCEPTION PATHS FOR EMPLOYER
+-------------------------------------------------------------------------------
+- First-Time Employer Empty State: New employer lands on Dashboard (6.1) with 0 active jobs. System renders standard empty state banner with prominent "Search Nearby Skilled Workers" primary CTA.
+- Validation Failure: Employer submits job post form (5.1) with missing salary or shift. Form highlights mandatory fields in red.
+- Attempting to Edit Closed Job: Employer attempts to edit a closed job on 6.2. System blocks action and returns error toast ("Closed jobs cannot be edited").
+- Widen Search Cap: Employer taps "Widen Search" on 4.3 multiple times. Search radius advances 1km -> 3km -> 5km -> 10km, then remains capped at 10km with fallback to Post Job.
+- Report Submission: Employer inspects worker who did not show up. Taps "Report this worker" (4.2) -> selects reason "Did not show up" (8.1) -> adds optional note (8.2) -> submits (8.3). System records confidential report into `reports` table.
+- Mismatch Confirmation: Employer marks worker hired (6.4), but worker responds "No, I didn't join" (9.1). System sets `hire_confirmations.status = MISMATCH` and automatically writes an `audit_logs` flag for admin review.
+
+===============================================================================
+3. ADMIN END-TO-END JOURNEY
+===============================================================================
+
+JOURNEY STEPS:
+Login -> Overview Dashboard -> Manage Users -> User Detail Inspection -> Account Suspension / Reinstatement -> System Audit Log Review (Filtered)
+
+-------------------------------------------------------------------------------
+3.1 HAPPY PATH
+-------------------------------------------------------------------------------
+1. Admin logs in with admin credentials at `kaamsetu.app/login` (1.0). System verifies ADMIN role.
+2. Lands on Admin Overview (7.1) displaying pilot KPIs: Total Workers (142), Employers (38), Active Jobs (21), Median Hire Time (18 min).
+3. Admin taps "Manage Users" / USERS tab (7.2) -> searches for user name or filters by role.
+4. Taps flagged user card (Suresh V. - 2 reports) -> opens User Detail (7.3).
+5. Reviews report history: "Did not show up", "Fake experience claim".
+6. Admin taps "Keep Suspended" / "Suspend User" (7.3). System sets `users.suspended = true`, revokes active JWT tokens via Redis, and writes an audit log entry.
+7. Admin taps LOGS tab (7.4) -> views timeline of audit log entries. Applies optional filters (`actor_id`, `action`, `start_date`, `end_date`) to inspect specific operations ("JOB_UPDATED", "USER_SUSPENDED").
+
+-------------------------------------------------------------------------------
+3.2 EDGE CASE & EXCEPTION PATHS FOR ADMIN
+-------------------------------------------------------------------------------
+- Authorization Violation: Non-admin user attempts to navigate directly to `/admin/*` URLs. Spring Security interceptor blocks request and returns HTTP 403 Forbidden.
+- Reinstatement Path: Admin reviews a false complaint -> taps "Reinstate" (7.3). System sets `users.suspended = false` and records audit entry ("USER_REINSTATED").
+
+===============================================================================
+4. SYSTEM & EDGE-CASE FLOWS
+===============================================================================
+
+-------------------------------------------------------------------------------
+4.1 FORGOT PIN RECOVERY FLOW (11.1)
+-------------------------------------------------------------------------------
+1. User taps "Forgot PIN?" on Login (1.0) -> opens Forgot PIN screen (11.1).
+2. User enters registered mobile number -> taps "Send OTP".
+3. System validates phone, generates 6-digit OTP, saves in Redis with 5 min TTL, dispatches SMS.
+4. User enters received OTP, new 6-digit PIN, and re-enters new PIN -> taps "Reset PIN & Log In".
+5. System verifies OTP, updates `users.pin_hash`, invalidates Redis OTP, and redirects to Login.
+
+-------------------------------------------------------------------------------
+4.2 SESSION TIMEOUT RE-AUTHENTICATION FLOW (11.6)
+-------------------------------------------------------------------------------
+1. User session expires after 24 hours or JWT is invalidated.
+2. User performs an action; backend API returns HTTP 401 Unauthorized.
+3. Next.js HTTP client interceptor catches 401 response and renders 11.6 Session Timeout overlay.
+4. User enters 6-digit PIN -> taps "Log Back In".
+5. System verifies PIN, issues fresh JWT token, closes modal, and retries original request seamlessly.
+===============================================================================

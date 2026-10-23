@@ -1,0 +1,571 @@
+===============================================================================
+KAAMSETU — PHASE 0: IMPLEMENTATION BUILD PLAN & ROADMAP
+===============================================================================
+Document Version: 1.5 (Reconciled Phase 0.5 Final Lock Pass)
+Authoritative Inputs: KaamSetu Wireframes v7.0 & Technical Build Specification v1.0
+Target Location: /docs/phase-0/BUILD_PLAN.txt
+
+-------------------------------------------------------------------------------
+EXECUTIVE SUMMARY & DEPENDENCY STRATEGY
+-------------------------------------------------------------------------------
+The implementation roadmap for KaamSetu is organized into 7 sequential phases covering 22 API capability groups across the complete REST endpoint surface (32 concrete endpoints).
+The recommended phase order strictly obeys the dependency graph of the domain:
+
+  Phase 1: Authentication, Onboarding & System States
+  Phase 2: Employer Worker Search & Match Intelligence Engine
+  Phase 3: Worker Home & Opportunity Discovery
+  Phase 4: Employer Dashboard, Job Management & Fallback Job Posting
+  Phase 5: Two-Sided Hire Confirmation & Worker Applications
+  Phase 6: Admin Console & Incident / Report Management
+  Phase 7: PWA, Offline Capabilities, Notifications, Security & Prod Readiness
+
+DEPENDENCY RATIONALE:
+1. Search & Match Intelligence (Phase 2) MUST precede Worker Home (Phase 3) because
+   Worker Home renders "Best Match Today", "Closest Opportunity", and "Highest Salary"
+   which rely directly on the Match Intelligence scoring algorithm and PostGIS query engine.
+2. Employer Search (Phase 2) MUST precede Fallback Job Posting (Phase 4) because
+   posting a job is strictly a fallback path triggered when search yields no results.
+3. Two-sided Hire Confirmation (Phase 5) depends on active job interest lifecycle from
+   Phases 3 & 4.
+4. Admin & Reporting (Phase 6) depend on data emitted by all core user flows.
+5. Production Readiness (Phase 7) hardens the validated end-to-end platform.
+
+===============================================================================
+PHASE 1: AUTHENTICATION, ONBOARDING & SYSTEM STATES
+===============================================================================
+OBJECTIVE:
+Establish user identity, authentication, profile creation (Skill Passport & Employer
+Business Profile), PIN management, security rate-limiting, and foundational permission
+dialog UI states.
+
+SCREENS INVOLVED:
+- 1.0   Login (kaamsetu.app/login)
+- 1.0b  Sign Up Choice (kaamsetu.app/signup)
+- 1.1   Worker Sign Up (kaamsetu.app/signup/worker)
+- 1.2   Work Experience — Skill Passport 1/3 (kaamsetu.app/onboard/experience)
+- 1.3   Worker Address — Skill Passport 2/3 (kaamsetu.app/onboard/address)
+- 1.4   Worker Preferences — Skill Passport 3/3 (kaamsetu.app/onboard/preferences)
+- 3.1   Employer Sign Up (kaamsetu.app/signup/employer)
+- 3.2   Business Profile — Business 1/2 (kaamsetu.app/onboard/business - onboarding & profile edit)
+- 3.3   Business Address — Business 2/2 (kaamsetu.app/onboard/business-address - onboarding & profile edit)
+- 11.1  Forgot PIN (kaamsetu.app/forgot-pin)
+- 11.2  Location Permission Prompt (kaamsetu.app/permissions)
+- 11.3  Notification Permission Prompt UI (kaamsetu.app/permissions)
+- 11.6  Session Timeout (kaamsetu.app/login)
+
+FRONTEND WORK:
+- Next.js responsive pages at mobile resolution (~375-414px).
+- Low-literacy UI primitives: 44px+ touch targets, 6-digit PIN input UI component with box focus.
+- Form validation hooks for mobile numbers, PIN matching, and mandatory address/experience fields.
+- Permission prompt screens for Browser Geolocation and Notification UI states (Allow / Not Now / Denied).
+- Auth state context / JWT storage in HttpOnly cookie / secure state.
+- Optional shop photo placeholder UI on 3.2 rendered per wireframe. Permissions Required: None in Phase 1. Shop photo is a non-functional placeholder. Camera/file permission and S3 media upload are deferred to Phase 7. Photo upload is optional and does not block onboarding.
+- Notification permission screen 11.3 UI handles Allow/Denied client states only. No Firebase Cloud Messaging SDK is integrated, no FCM token is registered, and `POST /api/v1/users/me/fcm-token` is NOT called in Phase 1 (deferred to Phase 7).
+- Worker onboarding (Screen 1.4) displays "Set myself Available now" as an INITIAL PROFILE PREFERENCE (`is_available` boolean flag stored via worker profile update API). Phase 1 stores only the worker's initial `is_available` preference. `available_until` remains NULL until the Phase 3 availability engine initializes and manages it. Phase 1 does not invoke the availability API or perform availability expiry.
+
+BACKEND WORK:
+- Auth Controller & Spring Security JWT generation/validation filter.
+- Password/PIN hashing via bcrypt / Argon2.
+- Redis integration for login rate-limiting (max 5 attempts per 15 mins per phone).
+- Worker onboarding REST endpoints (POST /auth/signup/worker, GET/PATCH /workers/me).
+- Employer onboarding REST endpoints (POST /auth/signup/employer, GET/PATCH /employers/me).
+- Forgot PIN endpoints (POST /auth/forgot-pin/request-otp, POST /auth/forgot-pin/reset).
+- Google Maps Geocoding integration to convert text addresses to PostGIS geography Point.
+- Mock/Stub Aadhaar verification service: UI collects Aadhaar; mock service returns `aadhaar_verified = TRUE` and a generated `aadhaar_ref_id` token. The raw 12-digit Aadhaar number may be transmitted only as part of the secure verification request required by the Aadhaar verification service. It MUST NEVER be persisted in the KaamSetu database, written to application logs, returned in any API response, stored in browser/local/session storage, included in audit metadata, or otherwise retained after verification processing. Real provider integration remains deferred (`PENDING INTEGRATION DECISION`).
+
+DATABASE WORK:
+- Create `users`, `user_devices`, `worker_profiles`, `worker_experience`, `employer_profiles` tables.
+- `user_devices` table is created as part of the schema foundation in Phase 1; Phase 7 handles token registration and operational use. `user_devices` exists structurally but remains UNUSED for token registration during Phase 1.
+- Create spatial GiST indexes on `worker_profiles.location` and `employer_profiles.location`.
+- Create composite indexes on `worker_experience(trade, profession)`.
+
+APIS REQUIRED:
+- POST /api/v1/auth/signup/worker
+- POST /api/v1/auth/signup/employer
+- POST /api/v1/auth/login
+- POST /api/v1/auth/forgot-pin/request-otp
+- POST /api/v1/auth/forgot-pin/reset
+- POST /api/v1/auth/logout
+- GET/PATCH /api/v1/workers/me
+- GET/PATCH /api/v1/employers/me
+
+BUSINESS RULES ENFORCED:
+- PIN, not OTP, is the everyday login mechanism. OTP is restricted strictly to Forgot PIN recovery.
+- Worker verification is ID-only (Aadhaar reference stub) for MVP. Employer verification is phone-only. Raw Aadhaar numbers are never stored or logged.
+- Total work experience, trade, profession, previous shop name, languages are captured in Skill Passport.
+- Address geocoding converts address into PostGIS Point(lon, lat, 4326).
+- Worker onboarding "Available Now" toggle sets initial profile preference only; it does not start the real-time availability engine.
+
+INTEGRATIONS:
+- Google Maps Geocoding API.
+- Redis cache for PIN attempt counters.
+- Mock/Stub Aadhaar Verification Service (marked `PENDING INTEGRATION DECISION`).
+
+-------------------------------------------------------------------------------
+PHASE 1 NOT IN SCOPE (EXPLICIT NON-SCOPE)
+-------------------------------------------------------------------------------
+The following MUST NOT be implemented during Phase 1:
+- Employer worker search
+- Search filters
+- PostGIS worker search queries
+- Match Intelligence
+- Match scoring
+- Worker Home recommendations
+- Best Match Today
+- Closest Opportunity
+- Highest Salary Nearby
+- Job discovery
+- Job posting
+- Job editing
+- Job closure
+- Employer Dashboard functionality beyond any required navigation shell
+- Hiring funnel
+- Worker applications
+- Express Interest
+- Hire selection
+- Two-sided hire confirmation
+- Hire mismatch handling
+- Admin Console
+- Admin metrics
+- User suspension
+- Reports
+- Audit log viewer
+- FCM SDK
+- FCM token registration
+- Push notification delivery
+- S3 upload
+- Media upload API
+- Offline mode
+- Service Worker caching
+- PWA production/offline behavior
+- Production security hardening
+
+Note: Phase 1 may contain navigation placeholders or non-functional route stubs only where necessary for application routing, but these routes must NOT expose unfinished functionality as implemented.
+
+VALIDATION & EDGE CASES:
+- Duplicate phone number registration handling (HTTP 409 Conflict).
+- Mismatched PIN vs Re-enter PIN validation.
+- Invalid Aadhaar format validation.
+- Geocoding failure fallback (prompt user to refine locality/city/pincode).
+- Account suspension status check during login attempt.
+
+TESTING REQUIREMENTS:
+- Unit tests: PIN hashing verification, JWT token expiration, password strength/pin validation.
+- Integration tests: Complete registration flow for both worker and employer.
+- Mock tests: Geocoding API failure handling, mock Aadhaar verification stub.
+
+DEPENDENCIES:
+- Database migrations script execution.
+- External Geocoding API key setup.
+
+COMPLETION CRITERIA:
+- Worker and Employer can register, set PIN, complete profile forms, and receive valid JWT session.
+- User address is geocoded and stored as PostGIS geography Point.
+- Failed PIN attempts lock account temporarily via Redis.
+
+===============================================================================
+PHASE 2: EMPLOYER WORKER SEARCH & MATCH INTELLIGENCE ENGINE
+===============================================================================
+OBJECTIVE:
+Build the primary employer discovery engine ("Search Nearby Skilled Workers"), the
+Match Intelligence scoring calculator, search filters, radius widening progression, and worker Skill Passport inspection.
+
+SCREENS INVOLVED:
+- 4.1  Search & Filters (kaamsetu.app/search)
+- 4.2  Skill Passport / Worker Detail (kaamsetu.app/worker/{id} - Employer inspection view & Worker self-profile view)
+- 4.3  No Match / Zero-State (kaamsetu.app/search)
+
+FRONTEND WORK:
+- Filter UI components: Trade, Profession, Available Now toggle, Verified chip, Salary/Experience/Radius chips.
+- Worker result card rendering with live Match Intelligence % badges and match factor breakdown tags.
+- Skill Passport UI screen rendering core skills, experience by trade, previous employers, shop categories (derived from unique trade ENUMs), languages, completed hires count (derived dynamically from 3-month confirmed hires), and address.
+- Dual perspective handling on 4.2:
+  * Employer view: Displays "View Contact Number" and "Report this worker".
+  * Worker self-view: Hides Contact Reveal & Report links; displays prominent "Edit Profile" button routing to 1.2/1.3/1.4.
+- Contact Reveal button triggering API and displaying unmasked phone number.
+- Zero-state view presenting "Widen Search" (advancing radius: 1km -> 3km -> 5km -> 10km max) and "Post a Job Need Instead" options.
+
+BACKEND WORK:
+- Implement PostGIS spatial query engine (`ST_DWithin`, `ST_Distance`).
+- Implement Match Intelligence Scoring Engine:
+  * Trade match (35%)
+  * Profession match (30%)
+  * Experience relevance (15%)
+  * Distance scoring (15% within radius)
+  * Availability scoring (5%)
+- Search API endpoint (`GET /api/v1/search/workers`) with multi-criteria dynamic SQL/PostGIS filtering.
+- Worker detail endpoint (`GET /api/v1/workers/{id}`) returning scored profile and derived shop categories & 3-month completed hires count.
+- Contact reveal endpoint (`GET /api/v1/workers/{id}/contact`) with authorization check and audit logging.
+
+DATABASE WORK:
+- Optimize spatial GiST index on `worker_profiles.location`.
+- Ensure composite index on `worker_profiles(is_available, available_until)`.
+- Ensure index on `worker_experience(trade, profession, worker_id)`.
+
+APIS REQUIRED:
+- GET /api/v1/search/workers
+- GET /api/v1/workers/{id}
+- GET /api/v1/workers/{id}/contact
+
+BUSINESS RULES ENFORCED:
+- Search is the primary employer action everywhere (search-first architecture).
+- Widen search advances radius along fixed progression: 1km -> 3km -> 5km -> 10km (capped at 10km for MVP).
+- Workers outside search radius are completely excluded from results (not just down-weighted).
+- Workers with expired availability (`available_until < NOW()`) are treated as unavailable.
+- Contact number is shielded and revealed ONLY upon explicit GET /workers/{id}/contact API call.
+- Audit log entry created whenever an employer reveals a worker's contact number.
+
+INTEGRATIONS:
+- PostGIS spatial functions for distance calculation in meters/kilometers.
+
+VALIDATION & EDGE CASES:
+- Zero workers found within radius triggers 4.3 zero-state UI with Widen Search CTA.
+- Employer attempting to search without set business address (defaults to business trade & location).
+- Unauthenticated access blocked on contact reveal.
+
+TESTING REQUIREMENTS:
+- Unit tests: Match Intelligence scoring logic across various edge case parameter combinations (confirming exact math e.g. 88.0%).
+- Database tests: Spatial distance queries accuracy against known coordinates.
+- Performance benchmark: GET /search/workers execution time under 1 second for 1,000 active profiles.
+
+DEPENDENCIES:
+- Phase 1 complete (user identity and profiles populated).
+
+COMPLETION CRITERIA:
+- Employers can filter nearby workers by trade, profession, availability, distance, and experience.
+- Match Intelligence scores calculate dynamically with exact percentage breakdown.
+- Widen search progressively expands search radius up to 10km cap.
+- Contact reveal returns worker phone number and records audit log.
+
+===============================================================================
+PHASE 3: WORKER HOME & OPPORTUNITY DISCOVERY
+===============================================================================
+OBJECTIVE:
+Build the Worker Home interface, availability toggle with server-enforced auto-expiry,
+curated job discovery sections, push match notifications, and job detail views.
+
+SCREENS INVOLVED:
+- 2.1  Worker Home — Available State (kaamsetu.app/home)
+- 2.2  Worker Home — Expired / Unavailable State (kaamsetu.app/home)
+- 2.3  Match Notification Modal / Overlay (kaamsetu.app/home)
+- 2.4  Job Detail (kaamsetu.app/jobs/{id})
+
+FRONTEND WORK:
+- Interactive Availability Toggle switch showing live countdown timer ("expires in 6h").
+- Sectioned Home layout: "Best Match Today", "Closest Opportunity", "Highest Salary Nearby", "Recently Viewed Jobs".
+- Job card UI with Match % badges and plain-language factor tags.
+- Job Detail view displaying Employer name, location distance, salary, shift (Day/Night), timing, and full Match Intelligence breakdown.
+- "I'm Interested" primary action button handler.
+- "Report this employer" secondary text link handler.
+
+BACKEND WORK:
+- Availability toggle API (`PATCH /api/v1/workers/me/availability`) setting `is_available` and `available_until` (NOW() + 12h default).
+- Worker Home query engine (`GET /api/v1/workers/me/home`) generating sectioned job recommendations.
+- Server-side query-time availability filter enforcing auto-expiry.
+- Job detail query endpoint (`GET /api/v1/jobs/{id}`) including worker-specific Match Intelligence breakdown.
+- Express Interest endpoint (`POST /api/v1/jobs/{id}/interest`) creating `job_interests` snapshot record.
+
+DATABASE WORK:
+- Create `jobs` (including `shift shift_type NOT NULL DEFAULT 'DAY'`) and `job_interests` tables.
+- Add unique constraint on `job_interests(job_id, worker_id)`.
+- Index on `jobs(trade, profession, status, location)`.
+
+APIS REQUIRED:
+- PATCH /api/v1/workers/me/availability
+- GET /api/v1/workers/me/home
+- GET /api/v1/jobs/{id}
+- POST /api/v1/jobs/{id}/interest
+
+BUSINESS RULES ENFORCED:
+- Availability auto-expires server-side when `available_until < NOW()`.
+- Expressing interest snapshots the current `match_score` into `job_interests.match_score`.
+- Duplicate interest expression on the same job returns HTTP 409 / idempotent success.
+
+INTEGRATIONS:
+- Redis key TTL for worker real-time availability status caching.
+
+VALIDATION & EDGE CASES:
+- Worker attempting to express interest when job status is CLOSED.
+- Worker viewing Home while unavailable renders 2.2 empty state notice.
+- Rapid toggle switching handled gracefully via backend idempotency.
+
+TESTING REQUIREMENTS:
+- Unit tests: Availability auto-expiry evaluation logic.
+- Integration tests: Worker expressing interest creates correct database record and snapshots match score.
+- API tests: Recommendation section query correctness and execution speed.
+
+DEPENDENCIES:
+- Phase 2 complete (Match Intelligence scoring engine active).
+
+COMPLETION CRITERIA:
+- Worker can toggle availability and see live countdown.
+- Worker Home renders four distinct job recommendation sections with Match Intelligence badges.
+- Tapping "I'm Interested" registers worker application with snapshotted match score.
+
+===============================================================================
+PHASE 4: EMPLOYER DASHBOARD, JOB MANAGEMENT & FALLBACK JOB POSTING
+===============================================================================
+OBJECTIVE:
+Deliver the Employer Dashboard, active hiring funnel progress tracking, fallback job
+posting workflow, job editing, and job closure management.
+
+SCREENS INVOLVED:
+- 5.1  Post a Job Need — Fallback Form (kaamsetu.app/jobs/new)
+- 5.2  Active Search Progress (kaamsetu.app/jobs/{id})
+- 6.1  Employer Dashboard (kaamsetu.app/dashboard - includes first-time empty state when 0 jobs exist)
+- 6.2  Job Detail & Hiring Funnel (kaamsetu.app/jobs/{id}/manage)
+- 6.3  Close Job Reason Modal (kaamsetu.app/jobs/{id}/close)
+- 6.4  Select Hired Worker Screen (kaamsetu.app/jobs/{id}/close/select)
+
+FRONTEND WORK:
+- Dashboard UI with top primary action "Search Nearby Skilled Workers" and small fallback link "+ Post a Job Need".
+- First-time empty state UI on Dashboard for new employers with 0 jobs.
+- Live hiring funnel visualization component: Notified -> Viewed -> Interested -> Hired.
+- Fallback Job Post form with trade, profession, experience, salary, shift (Day/Night mandatory), and timing inputs.
+- Active search progress UI displaying live funnel metric increments.
+- Job Edit pre-filled form modal triggered from "Edit Job" on 6.2 (editing salary, timing, shift, radius, experience).
+- Job Close dialog asking for close reason (HIRED_VIA_KAAMSETU, HIRED_ELSEWHERE, NO_LONGER_HIRING).
+- Worker selection list on 6.4 ("Confirm Hire & Close Job"). Tapping "Confirm Hire & Close Job" invokes ONLY `POST /api/v1/jobs/{id}/hire`. `PATCH /api/v1/jobs/{id}/close` is NOT called for KaamSetu hires.
+
+BACKEND WORK:
+- Employer Dashboard API (`GET /api/v1/employers/me/dashboard`) summarizing active jobs and funnel counts.
+- Job creation endpoint (`POST /api/v1/jobs`) initializing job with `shift` ENUM and triggering worker matching notifications.
+- Job edit endpoint (`PATCH /api/v1/jobs/{id}`) allowing updates to active job parameters (experience, salary, shift, timing, radius) with audit logging (`JOB_UPDATED`). Trade and profession remain immutable for MVP.
+- Job management endpoint (`GET /api/v1/jobs/{id}/manage`) returning job metadata and applicant list with match scores.
+- Job closure endpoint (`PATCH /api/v1/jobs/{id}/close`) updating status and reason (used ONLY for HIRED_ELSEWHERE and NO_LONGER_HIRING).
+- Select hired worker endpoint (`POST /api/v1/jobs/{id}/hire`) executing atomic hire operation:
+  * Validates employer ownership and worker interest.
+  * Creates `hire_confirmations` row (`employer_confirmed = true`, `worker_confirmed = NULL`, `status = PENDING`).
+  * Immediately transitions `jobs.status` to `CLOSED`.
+  * Dispatches notification prompt to selected worker.
+  * Writes audit log (`HIRE_INITIATED`).
+
+DATABASE WORK:
+- Add status indexes on `jobs(employer_id, status)`.
+- Ensure cascade rules for job state updates onto `job_interests`.
+
+APIS REQUIRED:
+- GET /api/v1/employers/me/dashboard
+- POST /api/v1/jobs
+- PATCH /api/v1/jobs/{id}
+- GET /api/v1/jobs/{id}/manage
+- PATCH /api/v1/jobs/{id}/close (for non-KaamSetu closure reasons)
+- POST /api/v1/jobs/{id}/hire (atomic hire selection & job closure for KaamSetu hires)
+
+BUSINESS RULES ENFORCED:
+- Job posting is strictly a fallback; posting form displays explanatory toast banner.
+- Employer cannot edit CLOSED jobs or alter `trade`/`profession` on active jobs.
+- Editing an active job writes an audit log and updates real-time search matching.
+- Selecting a worker via `POST /jobs/{id}/hire` atomically creates a `PENDING` hire confirmation and transitions the job to `CLOSED`. No secondary `PATCH /jobs/{id}/close` call is made.
+- Post a job auto-calculates geo point from employer profile address location.
+
+INTEGRATIONS:
+- Notification trigger pipeline to alert nearby matching workers upon new job posting or job updates.
+
+VALIDATION & EDGE CASES:
+- Employer attempting to post job with invalid salary or missing trade/profession/shift.
+- Employer attempting to edit a closed job returns 400 Bad Request.
+- Employer selecting a worker who never expressed interest or was never notified.
+
+TESTING REQUIREMENTS:
+- Unit tests: Funnel metric aggregations (COUNT by status).
+- Integration tests: Creating job -> editing job -> worker expressing interest -> employer invoking `POST /jobs/{id}/hire` -> verifying atomic `CLOSED` job status and `PENDING` hire confirmation record.
+
+DEPENDENCIES:
+- Phase 2 & Phase 3 complete.
+
+COMPLETION CRITERIA:
+- Employer Dashboard prominently displays Search as top CTA with job funnel metrics below.
+- Fallback job posting successfully creates job and notifies nearby matching workers.
+- Editing active job updates matching parameters and writes audit log.
+- Tapping "Confirm Hire & Close Job" invokes `POST /jobs/{id}/hire`, closing the job and initiating the two-sided hire confirmation prompt.
+
+===============================================================================
+PHASE 5: TWO-SIDED HIRE CONFIRMATION & WORKER APPLICATIONS
+===============================================================================
+OBJECTIVE:
+Implement the two-sided hire confirmation protocol, automatic audit logging for hire
+mismatches, worker application tracking, and dynamic Skill Passport trust metrics.
+
+SCREENS INVOLVED:
+- 9.1   Hire Confirmation Prompt (kaamsetu.app/home)
+- 9.2   Hire Confirmed Banner (kaamsetu.app/home)
+- 10.1  My Applications List (kaamsetu.app/applications)
+- 11.4  First-Time Empty State — Applications (kaamsetu.app/applications)
+
+FRONTEND WORK:
+- Hire confirmation popup/modal rendering employer name, role, salary, and dual action buttons ("Yes, I joined" / "No, I didn't join").
+- Confirmation success view explaining updated "Recently completed hires" count on Skill Passport.
+- My Applications screen displaying applied jobs, status badges (Notified, Viewed, Interested, Hired, Filled), and match % badges.
+- Empty state UI for workers with no application history (11.4).
+
+BACKEND WORK:
+- Create hire confirmation record (`hire_confirmations` table).
+- Pending hire confirmations API (`GET /api/v1/hire-confirmations/pending`).
+- Respond to hire confirmation API (`POST /api/v1/hire-confirmations/{id}/respond`):
+  * Worker responds YES (`confirmed = true`): sets `worker_confirmed = true`, `status = CONFIRMED`. Hire is fully confirmed.
+  * Worker responds NO (`confirmed = false`): sets `worker_confirmed = false`, `status = MISMATCH`. Job remains `CLOSED` (does not auto-reopen). Writes `HIRE_MISMATCH_FLAGGED` audit log.
+- Worker applications list API (`GET /api/v1/workers/me/applications`).
+
+DATABASE WORK:
+- Create `hire_confirmations` table with FK constraints to `jobs` and `worker_profiles`.
+- Unique constraint on `hire_confirmations(job_id, worker_id)`.
+
+APIS REQUIRED:
+- GET /api/v1/hire-confirmations/pending
+- POST /api/v1/hire-confirmations/{id}/respond
+- GET /api/v1/workers/me/applications
+
+BUSINESS RULES ENFORCED:
+- A hire is fully CONFIRMED only when both employer (`employer_confirmed = true`) and worker (`worker_confirmed = true`) respond YES.
+- If worker responds NO (`worker_confirmed = false`), status becomes `MISMATCH`. The job remains `CLOSED` (no automatic reopening). The employer must post a new job if they wish to search again.
+- Confirmed hires in the last 3 months dynamically calculate the "Recently completed hires" count on the worker's Skill Passport.
+- A mismatch auto-generates an `audit_logs` record for admin review (`HIRE_MISMATCH_FLAGGED`).
+
+INTEGRATIONS:
+- Internal event dispatcher for hire confirmation status changes.
+
+VALIDATION & EDGE CASES:
+- Worker attempting to respond twice to the same confirmation prompt.
+- Expired confirmation prompts (older than 7 days auto-flagged for review).
+- Application list pagination and sorting by applied date.
+
+TESTING REQUIREMENTS:
+- Unit tests: Two-sided state machine (`PENDING` -> `CONFIRMED` vs `PENDING` -> `MISMATCH`, maintaining `CLOSED` job status).
+- Integration tests: Worker confirming hire updates `hire_confirmations` and increments completed hires dynamic query result.
+
+DEPENDENCIES:
+- Phase 4 complete (employer hire selection functional).
+
+COMPLETION CRITERIA:
+- Worker receives hire confirmation prompt when selected by employer.
+- Responding "Yes" marks hire CONFIRMED and updates Skill Passport.
+- Responding "No" flags MISMATCH in audit log for admin review while keeping job CLOSED.
+
+===============================================================================
+PHASE 6: ADMIN CONSOLE & INCIDENT / REPORT MANAGEMENT
+===============================================================================
+OBJECTIVE:
+Build the Admin Console dashboard, user management table, user suspension controls,
+audit log viewer with query filters, and confidential user reporting pipeline.
+
+SCREENS INVOLVED:
+- 7.1  Admin Overview (kaamsetu.app/admin)
+- 7.2  Manage Users (kaamsetu.app/admin/users)
+- 7.3  User Detail & Suspension (kaamsetu.app/admin/users/{id})
+- 7.4  Audit Logs Viewer (kaamsetu.app/admin/logs)
+- 8.1  Report — Select Reason (kaamsetu.app/report/{id})
+- 8.2  Report — Add Details (kaamsetu.app/report/{id}/details)
+- 8.3  Report Submitted Confirmation (kaamsetu.app/report/confirmation)
+
+FRONTEND WORK:
+- Admin navigation bar and layout shell restricted to ADMIN role.
+- Pilot overview metrics UI displaying total workers, employers, active jobs, and median hire time.
+- User management table with search, role filters, and status badges (Active / Suspended).
+- User detail screen displaying report history and suspension action buttons ("Reinstate" / "Keep Suspended").
+- System audit log timeline viewer with optional filters (`actor_id`, `action`, `start_date`, `end_date`).
+- Three-step Report wizard for filing confidential complaints against users.
+
+BACKEND WORK:
+- Report submission endpoint (`POST /api/v1/reports`) storing confidential user complaints. Access is restricted strictly to Admins via Flow 07; reported users never see report contents or reporter identity.
+- Admin metrics API (`GET /api/v1/admin/overview`) calculating real-time pilot stats (including median hire time SQL aggregation).
+- Admin user search and inspection API (`GET /api/v1/admin/users`).
+- User suspension toggle API (`PATCH /api/v1/admin/users/{id}/suspend`).
+- Audit log query API (`GET /api/v1/admin/logs`) supporting optional query params: `actor_id`, `action`, `start_date`, `end_date`.
+- Security interceptor verifying ADMIN role authority on all `/admin/*` routes.
+
+DATABASE WORK:
+- Create `reports` and `audit_logs` tables.
+- Index on `reports(reported_id)` and `audit_logs(actor_id, created_at)`.
+
+APIS REQUIRED:
+- POST /api/v1/reports
+- GET /api/v1/admin/overview
+- GET /api/v1/admin/users
+- PATCH /api/v1/admin/users/{id}/suspend
+- GET /api/v1/admin/logs
+
+BUSINESS RULES ENFORCED:
+- Reports are strictly one-directional; reported users NEVER see report contents or reporter identity.
+- Suspended users are immediately blocked from logging in or appearing in search results.
+- Every suspension, reinstatement, and report action generates an immutable `audit_logs` entry.
+
+INTEGRATIONS:
+- Analytical SQL queries for median hire time computation.
+
+VALIDATION & EDGE CASES:
+- Non-admin user attempting to access `/api/v1/admin/*` endpoints returns HTTP 403 Forbidden.
+- User attempting to report themselves (blocked validation).
+- Suspended worker's active availability automatically turned OFF upon suspension.
+
+TESTING REQUIREMENTS:
+- Unit tests: Role-based authorization guard rails on admin endpoints.
+- Integration tests: Filing a report -> admin inspecting user detail -> suspending user -> verifying login blocked.
+
+DEPENDENCIES:
+- Phases 1 through 5 complete.
+
+COMPLETION CRITERIA:
+- Users can file confidential reports against employers or workers.
+- Admin can inspect pilot KPIs, search user profiles, suspend abusive accounts, and inspect/filter audit logs.
+
+===============================================================================
+PHASE 7: PWA, OFFLINE BEHAVIOR, NOTIFICATIONS, SECURITY & PROD READINESS
+===============================================================================
+OBJECTIVE:
+Transform the Next.js web application into a Progressive Web App (PWA), implement Firebase Cloud Messaging (FCM) Web Push SDK with multi-device token persistence (`POST /api/v1/users/me/fcm-token` -> `user_devices`), enable S3 media uploads (`POST /api/v1/media/upload-url`), enable offline page caching, complete security hardening, and execute end-to-end production verification.
+
+SCREENS INVOLVED:
+- 11.5  Offline Mode Banner & Cached View (kaamsetu.app/home)
+- All previously implemented screens under offline cache / PWA execution.
+
+FRONTEND WORK:
+- Configure Next.js PWA manifest file (`manifest.json`), service worker, and app icons.
+- Implement Service Worker caching strategies (Network First for API data with stale-while-revalidate fallback for Home and Search).
+- Integrate Firebase Cloud Messaging (FCM) Web Push SDK for push notification registration (`POST /api/v1/users/me/fcm-token`).
+- Integrate AWS S3 media upload execution for shop photos and avatars (`POST /api/v1/media/upload-url`).
+- Offline banner UI component (11.5) rendering when navigator.onLine is false.
+
+BACKEND WORK:
+- FCM device token management API (`POST /api/v1/users/me/fcm-token`) persisting tokens into `user_devices` table.
+- FCM push notification payload dispatcher service for matching events.
+- Production environment configuration (database connection pools, Redis SSL, CORS origins).
+- Final security audit: header hardening (HSTS, CSP, X-Frame-Options), rate-limiting enforcement, Aadhaar log redaction verification.
+- S3 image upload presigned URL endpoint (`POST /api/v1/media/upload-url`) with MIME type validation.
+
+DATABASE WORK:
+- Execute final database indexing check and query performance plan analysis (`EXPLAIN ANALYZE`).
+- Configure automated PostgreSQL daily backups and PostGIS extension health checks.
+
+APIS REQUIRED:
+- POST /api/v1/users/me/fcm-token
+- POST /api/v1/media/upload-url
+
+BUSINESS RULES ENFORCED:
+- When offline, availability toggle switch is disabled and cached data is explicitly labeled "(cached)".
+- FCM tokens stored per device in `user_devices`; logging out deactivates only the calling device's active token association (`active = false`). FCM tokens are never exposed in normal API responses.
+- Push notifications alert workers of new high-match jobs and employers of worker responses.
+
+INTEGRATIONS:
+- Firebase Cloud Messaging (FCM SDK).
+- AWS S3 bucket for media assets.
+
+VALIDATION & EDGE CASES:
+- Network loss while navigating application renders offline banner without crashing.
+- Push notification permission denied by user (fallback to in-app notification list).
+- Invalid image file format upload attempt blocked server-side.
+
+TESTING REQUIREMENTS:
+- Lighthouse PWA compliance audit score > 90.
+- End-to-end automated test suite execution covering all 11 user flows.
+- Penetration test for JWT security, rate-limiting, Aadhaar privacy, and SQL/XSS vulnerabilities.
+
+DEPENDENCIES:
+- Phases 1 through 6 fully complete.
+
+COMPLETION CRITERIA:
+- Application is fully installable as a PWA on Android/iOS browsers.
+- Service worker gracefully handles offline network states.
+- FCM push notifications delivered successfully via `user_devices` persistence model.
+- S3 media upload presigned URL pipeline functioning cleanly.
+===============================================================================

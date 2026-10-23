@@ -1,0 +1,966 @@
+===============================================================================
+KAAMSETU — API IMPLEMENTATION STATUS & INVENTORY (REVISED v1.5)
+===============================================================================
+Document Version: 1.5 (Reconciled Phase 0.5 Final Lock Pass)
+Authoritative Inputs: KaamSetu Technical Build Specification v1.0 (Section 7) & Wireframes v7.0
+Target Location: /docs/phase-0/API_IMPLEMENTATION_STATUS.txt
+
+API Architecture Overview: 22 API capability groups covering the complete REST endpoint surface (32 concrete endpoints).
+
+Base URL: /api/v1
+Authentication Protocol: HTTP Bearer JWT
+
+===============================================================================
+1. AUTHENTICATION APIs
+===============================================================================
+
+-------------------------------------------------------------------------------
+API Endpoint: POST /api/v1/auth/signup/worker
+-------------------------------------------------------------------------------
+Source Reference: Tech Spec Section 7 (Auth) & Wireframe Screen 1.1
+Auth Requirement: Unauthenticated (Public)
+Allowed Role: Anyone
+Request Payload:
+{
+  "full_name": "string (mandatory)",
+  "phone_number": "string (mandatory, 10 digits)",
+  "pin": "string (mandatory, 6 digits)",
+  "aadhaar_number": "string (mandatory, 12 digits)"
+}
+Response Payload (201 Created):
+{
+  "user_id": "UUID",
+  "phone_number": "string",
+  "role": "WORKER",
+  "token": "string (JWT token)"
+}
+Validation Rules: Phone 10 digits, PIN 6 numeric digits, Aadhaar 12 numeric digits, phone must be unique.
+Database Entities Used: users (`aadhaar_verified`, `aadhaar_ref_id`)
+Business Rules:
+- The raw 12-digit Aadhaar number may be transmitted only as part of the secure verification request required by the Aadhaar verification service. It MUST NEVER be persisted in the KaamSetu database, written to application logs, returned in any API response, stored in browser/local/session storage, included in audit metadata, or otherwise retained after verification processing (BR-Aadhaar).
+- System performs verification against integration provider, persisting `aadhaar_verified = TRUE` and verification reference token `aadhaar_ref_id` ONLY. Raw Aadhaar is discarded immediately after verification processing.
+- External verification provider marked: `PENDING INTEGRATION DECISION`.
+- PIN hashed via bcrypt/argon2 (BR-006); worker verification is Aadhaar ID-only for MVP (BR-003).
+Error Conditions:
+- 400 Bad Request (Validation failure)
+- 409 Conflict (Phone number already registered)
+Audit Logging Requirement: Write to audit_logs ("WORKER_REGISTERED")
+Redis Dependency: None
+External Integration: Aadhaar Verification Provider (Mock/Stub for MVP - marked `PENDING INTEGRATION DECISION`)
+
+-------------------------------------------------------------------------------
+API Endpoint: POST /api/v1/auth/signup/employer
+-------------------------------------------------------------------------------
+Source Reference: Tech Spec Section 7 (Auth) & Wireframe Screen 3.1
+Auth Requirement: Unauthenticated (Public)
+Allowed Role: Anyone
+Request Payload:
+{
+  "business_name": "string (mandatory)",
+  "owner_name": "string (mandatory)",
+  "phone_number": "string (mandatory, 10 digits)",
+  "pin": "string (mandatory, 6 digits)"
+}
+Response Payload (201 Created):
+{
+  "user_id": "UUID",
+  "phone_number": "string",
+  "role": "EMPLOYER",
+  "token": "string (JWT token)"
+}
+Validation Rules: Names non-empty, Phone 10 digits, PIN 6 numeric digits, phone must be unique.
+Database Entities Used: users, employer_profiles
+Business Rules: Employer verification is phone-only (BR-007); PIN hashed via bcrypt/argon2.
+Error Conditions:
+- 400 Bad Request
+- 409 Conflict (Phone already registered)
+Audit Logging Requirement: Write to audit_logs ("EMPLOYER_REGISTERED")
+Redis Dependency: None
+External Integration: None
+
+-------------------------------------------------------------------------------
+API Endpoint: POST /api/v1/auth/login
+-------------------------------------------------------------------------------
+Source Reference: Tech Spec Section 7 (Auth) & Wireframe Screen 1.0 / 11.6
+Auth Requirement: Unauthenticated (Public)
+Allowed Role: Anyone
+Request Payload:
+{
+  "phone_number": "string (mandatory)",
+  "pin": "string (mandatory, 6 digits)"
+}
+Response Payload (200 OK):
+{
+  "user_id": "UUID",
+  "role": "WORKER | EMPLOYER | ADMIN",
+  "token": "string (JWT token)",
+  "expires_in": 86400
+}
+Validation Rules: Phone and PIN non-empty.
+Database Entities Used: users
+Business Rules: PIN login only (BR-006); account suspended users rejected; max 5 failed attempts in 15 mins.
+Error Conditions:
+- 401 Unauthorized (Invalid PIN or phone)
+- 403 Forbidden (Account suspended)
+- 429 Too Many Requests (Rate limit exceeded)
+Audit Logging Requirement: Write to audit_logs on login failure or account lockout.
+Redis Dependency: Redis key `login_attempts:{phone_number}` for rate limiting.
+External Integration: None
+
+-------------------------------------------------------------------------------
+API Endpoint: POST /api/v1/auth/forgot-pin/request-otp
+-------------------------------------------------------------------------------
+Source Reference: Tech Spec Section 7 (Auth) & Wireframe Screen 11.1
+Auth Requirement: Unauthenticated (Public)
+Allowed Role: Anyone
+Request Payload:
+{
+  "phone_number": "string (mandatory)"
+}
+Response Payload (200 OK):
+{
+  "message": "OTP sent successfully",
+  "reference_id": "UUID"
+}
+Validation Rules: Valid registered phone number.
+Database Entities Used: users
+Business Rules: OTP used EXCLUSIVELY for Forgot PIN recovery (BR-006).
+Error Conditions:
+- 404 Not Found (Phone number not registered)
+- 429 Too Many Requests
+Audit Logging Requirement: Write to audit_logs ("OTP_REQUESTED")
+Redis Dependency: Redis key `otp:{phone_number}` with 5-minute TTL.
+External Integration: SMS Gateway
+
+-------------------------------------------------------------------------------
+API Endpoint: POST /api/v1/auth/forgot-pin/reset
+-------------------------------------------------------------------------------
+Source Reference: Tech Spec Section 7 (Auth) & Wireframe Screen 11.1
+Auth Requirement: Unauthenticated (Public)
+Allowed Role: Anyone
+Request Payload:
+{
+  "phone_number": "string (mandatory)",
+  "otp": "string (mandatory, 6 digits)",
+  "new_pin": "string (mandatory, 6 digits)"
+}
+Response Payload (200 OK):
+{
+  "message": "PIN reset successfully. Please log in with your new PIN."
+}
+Validation Rules: OTP valid and unexpired, new_pin 6 digits.
+Database Entities Used: users
+Business Rules: Updates user `pin_hash`; invalidates active OTP in Redis.
+Error Conditions:
+- 400 Bad Request (Invalid OTP or PIN format)
+Audit Logging Requirement: Write to audit_logs ("PIN_RESET_SUCCESS")
+Redis Dependency: Redis key `otp:{phone_number}` verification and deletion.
+External Integration: None
+
+-------------------------------------------------------------------------------
+API Endpoint: POST /api/v1/auth/logout
+-------------------------------------------------------------------------------
+Source Reference: Tech Spec Section 7 (Auth) & Resolved Decision 9 (Multi-Device FCM)
+Auth Requirement: Authenticated
+Allowed Role: All roles
+Request Payload:
+{
+  "fcm_token": "string (optional - current device token to deactivate)"
+}
+Response Payload (200 OK):
+{
+  "message": "Logged out successfully"
+}
+Validation Rules: Valid JWT token.
+Database Entities Used: user_devices
+Business Rules:
+- Invalidates calling JWT token on server via Redis blocklist.
+- Deactivates ONLY the current device's active FCM token in `user_devices` (`active = false`). Other active devices belonging to the user remain registered and active (BR-MultiDeviceLogout). FCM tokens are never treated as a single user-level token.
+Error Conditions: 401 Unauthorized
+Audit Logging Requirement: None
+Redis Dependency: Redis blocklist `jwt_blocklist:{token}`.
+External Integration: None
+
+===============================================================================
+2. WORKER APIs
+===============================================================================
+
+-------------------------------------------------------------------------------
+API Endpoint: GET /api/v1/workers/me
+-------------------------------------------------------------------------------
+Source Reference: Tech Spec Section 7 (Worker) & Wireframe Screen 4.2 (Self-View)
+Auth Requirement: Authenticated
+Allowed Role: WORKER
+Request Payload: None
+Response Payload (200 OK):
+{
+  "user_id": "UUID",
+  "full_name": "string",
+  "total_experience_years": 5.0,
+  "languages": ["Hindi", "English"],
+  "preferred_salary": 18000,
+  "preferred_distance_km": 5.0,
+  "is_available": true,
+  "available_until": "ISO-8601 Timestamp",
+  "address": {
+    "address_line": "string",
+    "area": "string",
+    "city": "string",
+    "pincode": "string",
+    "latitude": 28.5355,
+    "longitude": 77.3910
+  },
+  "experiences": [
+    {
+      "id": "UUID",
+      "trade": "ELECTRICAL",
+      "profession": "HELPER",
+      "previous_employer_name": "Sharma Electricals",
+      "duration_months": 36,
+      "core_skills": ["Wiring", "Billing"]
+    }
+  ],
+  "shop_categories": ["Electrical"],
+  "recently_completed_hires_count": 2
+}
+Validation Rules: Authenticated worker identity.
+Database Entities Used: users, worker_profiles, worker_experience, hire_confirmations
+Business Rules: Returns worker's own complete Skill Passport data including derived shop categories and dynamic 3-month completed hires count.
+Error Conditions: 401 Unauthorized, 403 Forbidden
+Audit Logging Requirement: None
+Redis Dependency: None
+External Integration: None
+
+-------------------------------------------------------------------------------
+API Endpoint: PATCH /api/v1/workers/me
+-------------------------------------------------------------------------------
+Source Reference: Tech Spec Section 7 (Worker) & Wireframe Screens 1.2, 1.3, 1.4
+Auth Requirement: Authenticated
+Allowed Role: WORKER
+Request Payload:
+{
+  "full_name": "string (optional)",
+  "total_experience_years": "numeric (optional)",
+  "languages": "array of strings (optional)",
+  "preferred_salary": "integer (optional)",
+  "preferred_distance_km": "numeric (optional)",
+  "address_line": "string (optional)",
+  "area": "string (optional)",
+  "city": "string (optional)",
+  "pincode": "string (optional)",
+  "experiences": "array of experience objects (optional)"
+}
+Response Payload (200 OK): Updated worker profile object.
+Validation Rules: Salary >= 0, experience >= 0, trade/profession within allowed ENUMs.
+Database Entities Used: worker_profiles, worker_experience
+Business Rules: Addresses are auto-geocoded to PostGIS Point(lon, lat, 4326).
+Error Conditions: 400 Bad Request
+Audit Logging Requirement: Write to audit_logs ("WORKER_PROFILE_UPDATED")
+Redis Dependency: None
+External Integration: Google Maps Geocoding API (when address updated)
+
+-------------------------------------------------------------------------------
+API Endpoint: PATCH /api/v1/workers/me/availability
+-------------------------------------------------------------------------------
+Source Reference: Tech Spec Section 7 (Worker) & Wireframe Screens 2.1, 2.2
+Implementation Phase: Phase 3 (Worker Home & Availability Engine)
+Auth Requirement: Authenticated
+Allowed Role: WORKER
+Request Payload:
+{
+  "is_available": "boolean (mandatory)"
+}
+Response Payload (200 OK):
+{
+  "is_available": true,
+  "available_until": "2026-09-20T11:00:00Z"
+}
+Validation Rules: is_available boolean.
+Database Entities Used: worker_profiles
+Business Rules:
+- Implementation Phase: Phase 3 (NOT implemented or called in Phase 1).
+- Phase 1 Onboarding Boundary: The "Set myself Available now" option in Screen 1.4 stores an initial profile preference (`is_available`) via `PATCH /api/v1/workers/me`. It does NOT invoke this API or start the 12h countdown engine.
+- If is_available = true, sets `available_until = NOW() + 12 hours` (BR-002). If false, sets `available_until = null`.
+Error Conditions: 400 Bad Request
+Audit Logging Requirement: Write to audit_logs ("AVAILABILITY_TOGGLED")
+Redis Dependency: Updates Redis availability key `worker_avail:{worker_id}` with 12h TTL (Phase 3).
+External Integration: None
+
+-------------------------------------------------------------------------------
+API Endpoint: GET /api/v1/workers/me/home
+-------------------------------------------------------------------------------
+Source Reference: Tech Spec Section 7 (Worker) & Wireframe Screen 2.1
+Auth Requirement: Authenticated
+Allowed Role: WORKER
+Request Payload: None (Query params: lat, lon optional override)
+Response Payload (200 OK):
+{
+  "is_available": true,
+  "available_until": "ISO-8601 Timestamp",
+  "best_match_today": { "job": {}, "match_score": 88.0, "why": ["Trade", "Profession", "5 yrs exp"] },
+  "closest_opportunity": { "job": {}, "distance_km": 0.3 },
+  "highest_salary_nearby": { "job": {}, "salary": 20000 },
+  "recently_viewed": [ { "job_id": "UUID", "title": "string" } ]
+}
+Validation Rules: Worker authentication required.
+Database Entities Used: worker_profiles, jobs, worker_experience, employer_profiles
+Business Rules: Sectioned recommendations computed using PostGIS and Match Intelligence scoring rules.
+Error Conditions: 401 Unauthorized
+Audit Logging Requirement: None
+Redis Dependency: Reads worker's cached recent views.
+External Integration: PostGIS spatial query engine
+
+-------------------------------------------------------------------------------
+API Endpoint: GET /api/v1/workers/me/applications
+-------------------------------------------------------------------------------
+Source Reference: Tech Spec Section 7 (Worker) & Wireframe Screen 10.1 / 11.4
+Auth Requirement: Authenticated
+Allowed Role: WORKER
+Request Payload: None
+Response Payload (200 OK):
+[
+  {
+    "application_id": "UUID",
+    "job_id": "UUID",
+    "job_title": "Electrical · Helper",
+    "employer_name": "Sharma Electricals",
+    "match_score": 88.0,
+    "status": "HIRED",
+    "applied_at": "ISO-8601 Timestamp"
+  }
+]
+Validation Rules: Worker auth required.
+Database Entities Used: job_interests, jobs, employer_profiles
+Business Rules: Returns all jobs where worker expressed interest, ordered by applied_at desc.
+Error Conditions: 401 Unauthorized
+Audit Logging Requirement: None
+Redis Dependency: None
+External Integration: None
+
+-------------------------------------------------------------------------------
+API Endpoint: GET /api/v1/jobs/{id}
+-------------------------------------------------------------------------------
+Source Reference: Tech Spec Section 7 (Worker) & Wireframe Screen 2.4
+Auth Requirement: Authenticated
+Allowed Role: All authenticated roles
+Request Payload: None
+Response Payload (200 OK):
+{
+  "job_id": "UUID",
+  "employer_name": "Sharma Electricals",
+  "area": "Sector 60, Noida",
+  "trade": "ELECTRICAL",
+  "profession": "HELPER",
+  "experience_required_years": 2.0,
+  "salary": 18000,
+  "shift": "DAY",
+  "timing": "9 AM – 6 PM",
+  "status": "ACTIVE",
+  "distance_km": 0.8,
+  "match_intelligence": {
+    "total_score": 88.0,
+    "trade_match": true,
+    "profession_match": true,
+    "experience_match": true,
+    "distance_match": true,
+    "availability_match": true
+  }
+}
+Validation Rules: Job ID valid UUID.
+Database Entities Used: jobs, employer_profiles, worker_profiles
+Business Rules: Calculates dynamic Match Intelligence breakdown relative to calling worker's profile.
+Error Conditions: 404 Not Found
+Audit Logging Requirement: None
+Redis Dependency: None
+External Integration: PostGIS
+
+-------------------------------------------------------------------------------
+API Endpoint: POST /api/v1/jobs/{id}/interest
+-------------------------------------------------------------------------------
+Source Reference: Tech Spec Section 7 (Worker) & Wireframe Screen 2.4
+Auth Requirement: Authenticated
+Allowed Role: WORKER
+Request Payload: None
+Response Payload (201 Created):
+{
+  "interest_id": "UUID",
+  "job_id": "UUID",
+  "status": "INTERESTED",
+  "match_score": 88.0,
+  "created_at": "ISO-8601 Timestamp"
+}
+Validation Rules: Job must be ACTIVE.
+Database Entities Used: job_interests, jobs, worker_profiles
+Business Rules: Snapshots current `match_score` into `job_interests.match_score`; duplicate requests return 409 Conflict.
+Error Conditions:
+- 404 Not Found
+- 409 Conflict (Already expressed interest)
+- 400 Bad Request (Job is CLOSED)
+Audit Logging Requirement: Write to audit_logs ("INTEREST_EXPRESSED")
+Redis Dependency: None
+External Integration: Firebase Web Push (notifies employer of new interested worker)
+
+===============================================================================
+3. EMPLOYER APIs
+===============================================================================
+
+-------------------------------------------------------------------------------
+API Endpoint: GET/PATCH /api/v1/employers/me
+-------------------------------------------------------------------------------
+Source Reference: Tech Spec Section 7 (Employer) & Wireframe Screens 3.2, 3.3 (onboarding & profile edit)
+Auth Requirement: Authenticated
+Allowed Role: EMPLOYER
+Request Payload (for PATCH):
+{
+  "business_name": "string",
+  "owner_name": "string",
+  "business_trade": "ELECTRICAL",
+  "years_in_business": 5,
+  "typical_roles_hired": ["Helper", "Sales"],
+  "address_line": "string",
+  "area": "string",
+  "city": "string",
+  "pincode": "string"
+}
+Response Payload (200 OK): Updated employer profile object.
+Validation Rules: Business trade valid ENUM, years positive integer.
+Database Entities Used: employer_profiles
+Business Rules: Address geocoded to PostGIS geography Point(lon, lat, 4326). Used post-onboarding from Employer PROFILE tab in pre-filled edit mode (BR-EmpProfile).
+Error Conditions: 400 Bad Request
+Audit Logging Requirement: Write to audit_logs ("EMPLOYER_PROFILE_UPDATED")
+Redis Dependency: None
+External Integration: Google Maps Geocoding API
+
+-------------------------------------------------------------------------------
+API Endpoint: GET /api/v1/search/workers
+-------------------------------------------------------------------------------
+Source Reference: Tech Spec Section 7 (Employer) & Wireframe Screen 4.1 / 4.3
+Auth Requirement: Authenticated
+Allowed Role: EMPLOYER
+Query Parameters:
+- trade (string, default: employer's business_trade)
+- profession (string, optional)
+- available_now (boolean, default: false)
+- verified (boolean, default: false)
+- salary_max (integer, optional)
+- experience_min (numeric, optional)
+- radius_km (numeric, default: 1.0, progressive values: 1.0, 3.0, 5.0, 10.0 max)
+Response Payload (200 OK):
+{
+  "total_found": 6,
+  "radius_km": 1.0,
+  "workers": [
+    {
+      "worker_id": "UUID",
+      "full_name": "Raj Kumar",
+      "trade": "ELECTRICAL",
+      "profession": "HELPER",
+      "experience_years": 5.0,
+      "distance_km": 0.8,
+      "is_available": true,
+      "aadhaar_verified": true,
+      "match_score": 88.0
+    }
+  ]
+}
+Validation Rules: radius_km > 0 and <= 10.0.
+Database Entities Used: worker_profiles, worker_experience, users
+Business Rules:
+- Search is the primary employer discovery mechanism (BR-001).
+- Opens with employer's business trade as default filter.
+- Widen Search advances radius along progression: 1km -> 3km -> 5km -> 10km max (BR-WidenSearch).
+- Workers outside radius excluded entirely via PostGIS `ST_DWithin`.
+- Response time target < 1 second.
+Error Conditions: 400 Bad Request
+Audit Logging Requirement: None
+Redis Dependency: Caches hot search results `search:{hash}` for 30 seconds.
+External Integration: PostGIS spatial engine
+
+-------------------------------------------------------------------------------
+API Endpoint: GET /api/v1/workers/{id}
+-------------------------------------------------------------------------------
+Source Reference: Tech Spec Section 7 (Employer) & Wireframe Screen 4.2
+Auth Requirement: Authenticated
+Allowed Role: EMPLOYER | WORKER
+Request Payload: None
+Response Payload (200 OK):
+{
+  "worker_id": "UUID",
+  "full_name": "Raj Kumar",
+  "is_available": true,
+  "aadhaar_verified": true,
+  "match_score_for_active_search": 88.0,
+  "core_skills": ["Wiring", "Switches & MCB", "Billing"],
+  "experience_by_trade": [ { "trade": "ELECTRICAL", "years": 5.0 } ],
+  "previous_employers": [ { "name": "Sharma Electricals", "duration_months": 36 } ],
+  "shop_categories": ["Electrical"],
+  "languages": ["Hindi", "English"],
+  "recently_completed_hires_count": 2,
+  "locality": "Sector 62, Noida",
+  "distance_km": 0.8,
+  "phone_number": "MASKED (call GET /workers/{id}/contact to reveal)"
+}
+Validation Rules: Valid worker UUID.
+Database Entities Used: worker_profiles, worker_experience, hire_confirmations
+Business Rules:
+- `shop_categories` derived dynamically from unique `trade` ENUMs in `worker_experience` (BR-ShopCategories).
+- `recently_completed_hires_count` calculated dynamically via `COUNT(hire_confirmations)` in 3-month window (BR-HiresCount).
+- Phone number is MASKED in this response payload for employers (BR-Contact).
+Error Conditions: 404 Not Found
+Audit Logging Requirement: None
+Redis Dependency: None
+External Integration: None
+
+-------------------------------------------------------------------------------
+API Endpoint: POST /api/v1/jobs
+-------------------------------------------------------------------------------
+Source Reference: Tech Spec Section 7 (Employer) & Wireframe Screen 5.1
+Auth Requirement: Authenticated
+Allowed Role: EMPLOYER
+Request Payload:
+{
+  "trade": "ELECTRICAL (mandatory)",
+  "profession": "HELPER (mandatory)",
+  "experience_required_years": 2.0,
+  "salary": 18000,
+  "shift": "DAY | NIGHT (mandatory, default: DAY)",
+  "timing": "9 AM - 6 PM",
+  "radius_km": 1.0
+}
+Response Payload (201 Created):
+{
+  "job_id": "UUID",
+  "status": "ACTIVE",
+  "shift": "DAY",
+  "created_at": "ISO-8601 Timestamp"
+}
+Validation Rules: Mandatory fields present, salary > 0, radius > 0, shift ENUM valid.
+Database Entities Used: jobs, employer_profiles
+Business Rules: Fallback path when search returns zero workers (BR-001). Job location inherited from employer address.
+Error Conditions: 400 Bad Request
+Audit Logging Requirement: Write to audit_logs ("JOB_POSTED")
+Redis Dependency: None
+External Integration: Firebase Web Push (notifies matching workers in radius)
+
+-------------------------------------------------------------------------------
+API Endpoint: PATCH /api/v1/jobs/{id}
+-------------------------------------------------------------------------------
+Source Reference: Wireframe Screen 6.2 (Edit Job CTA) & Resolved Decision 5 (GAP-HIGH-002)
+Auth Requirement: Authenticated
+Allowed Role: EMPLOYER
+Request Payload:
+{
+  "experience_required_years": "numeric (optional)",
+  "salary": "integer (optional)",
+  "shift": "DAY | NIGHT (optional)",
+  "timing": "string (optional)",
+  "radius_km": "numeric (optional)"
+}
+Response Payload (200 OK):
+{
+  "job_id": "UUID",
+  "status": "ACTIVE",
+  "updated_at": "ISO-8601 Timestamp"
+}
+Validation Rules:
+- Only the owning employer can edit the job.
+- CLOSED jobs cannot be edited.
+- `trade` and `profession` fields are IMMUTABLE post-creation for MVP.
+Database Entities Used: jobs, audit_logs
+Business Rules: Allows employer to update parameters on an ACTIVE job. Writes a `JOB_UPDATED` audit log and updates matching engine index.
+Error Conditions:
+- 400 Bad Request (Attempting to edit closed job or immutable fields)
+- 403 Forbidden (Not the owning employer)
+- 404 Not Found
+Audit Logging Requirement: Write to audit_logs ("JOB_UPDATED", metadata: { job_id, updated_fields })
+Redis Dependency: None
+External Integration: None
+
+-------------------------------------------------------------------------------
+API Endpoint: GET /api/v1/employers/me/dashboard
+-------------------------------------------------------------------------------
+Source Reference: Tech Spec Section 7 (Employer) & Wireframe Screen 6.1
+Auth Requirement: Authenticated
+Allowed Role: EMPLOYER
+Request Payload: None
+Response Payload (200 OK):
+{
+  "active_jobs_count": 2,
+  "total_hires_count": 5,
+  "jobs": [
+    {
+      "job_id": "UUID",
+      "title": "Electrical · Helper",
+      "status": "ACTIVE",
+      "funnel": { "notified": 6, "viewed": 4, "interested": 2, "hired": 0 }
+    }
+  ]
+}
+Validation Rules: Employer authentication required.
+Database Entities Used: jobs, job_interests, hire_confirmations
+Business Rules: Calculates aggregate hiring funnel metrics for employer. First-time empty state rendered when active_jobs_count = 0.
+Error Conditions: 401 Unauthorized
+Audit Logging Requirement: None
+Redis Dependency: None
+External Integration: None
+
+-------------------------------------------------------------------------------
+API Endpoint: GET /api/v1/jobs/{id}/manage
+-------------------------------------------------------------------------------
+Source Reference: Tech Spec Section 7 (Employer) & Wireframe Screen 6.2 / 5.2
+Auth Requirement: Authenticated
+Allowed Role: EMPLOYER
+Request Payload: None
+Response Payload (200 OK):
+{
+  "job_id": "UUID",
+  "status": "ACTIVE",
+  "posted_at": "ISO-8601 Timestamp",
+  "funnel": { "notified": 6, "viewed": 4, "interested": 2, "hired": 0 },
+  "interested_workers": [
+    {
+      "worker_id": "UUID",
+      "full_name": "Raj Kumar",
+      "distance_km": 0.8,
+      "trade": "ELECTRICAL",
+      "profession": "HELPER",
+      "experience_years": 5.0,
+      "match_score": 88.0,
+      "expressed_interest_at": "ISO-8601 Timestamp"
+    }
+  ]
+}
+Validation Rules: Employer must own the specified job.
+Database Entities Used: jobs, job_interests, worker_profiles
+Business Rules: Returns full applicant pipeline sorted by Match Intelligence score.
+Error Conditions: 403 Forbidden, 404 Not Found
+Audit Logging Requirement: None
+Redis Dependency: None
+External Integration: None
+
+-------------------------------------------------------------------------------
+API Endpoint: PATCH /api/v1/jobs/{id}/close
+-------------------------------------------------------------------------------
+Source Reference: Tech Spec Section 7 (Employer) & Wireframe Screen 6.3
+Auth Requirement: Authenticated
+Allowed Role: EMPLOYER
+Request Payload:
+{
+  "close_reason": "HIRED_ELSEWHERE | NO_LONGER_HIRING (mandatory)"
+}
+Response Payload (200 OK):
+{
+  "job_id": "UUID",
+  "status": "CLOSED",
+  "close_reason": "HIRED_ELSEWHERE",
+  "closed_at": "ISO-8601 Timestamp"
+}
+Validation Rules: Valid close_reason ENUM (`HIRED_ELSEWHERE` or `NO_LONGER_HIRING`).
+Database Entities Used: jobs
+Business Rules: Used exclusively from Screen 6.3 for non-KaamSetu closure reasons (`HIRED_ELSEWHERE`, `NO_LONGER_HIRING`). Sets job status = CLOSED. KaamSetu hires executed via Screen 6.4 call `POST /api/v1/jobs/{id}/hire` which atomically sets `status = CLOSED` and `close_reason = HIRED_VIA_KAAMSETU`; `PATCH /api/v1/jobs/{id}/close` is NOT called for KaamSetu hires.
+Error Conditions: 400 Bad Request, 403 Forbidden
+Audit Logging Requirement: Write to audit_logs ("JOB_CLOSED")
+Redis Dependency: None
+External Integration: None
+
+-------------------------------------------------------------------------------
+API Endpoint: POST /api/v1/jobs/{id}/hire
+-------------------------------------------------------------------------------
+Source Reference: Tech Spec Section 7 (Employer), Wireframe Screen 6.4 & Phase 0.2 Lifecycle Specification
+Auth Requirement: Authenticated
+Allowed Role: EMPLOYER
+Request Payload:
+{
+  "worker_id": "UUID (mandatory)"
+}
+Response Payload (201 Created):
+{
+  "hire_confirmation_id": "UUID",
+  "job_id": "UUID",
+  "worker_id": "UUID",
+  "status": "PENDING"
+}
+Validation Rules: Specified worker must have expressed interest in this job (`job_interests` record exists).
+Database Entities Used: hire_confirmations, jobs, job_interests
+Business Rules:
+- Creates a `hire_confirmations` record with `employer_confirmed = true`, `worker_confirmed = NULL`, `status = PENDING`.
+- IMMEDIATELY updates `jobs.status = CLOSED` because the employer has selected a worker and the job is no longer available to other workers (BR-004).
+- Sends Web Push notification prompt (9.1) to the selected worker.
+Error Conditions: 400 Bad Request, 404 Not Found
+Audit Logging Requirement: Write to audit_logs ("HIRE_INITIATED")
+Redis Dependency: None
+External Integration: Firebase Web Push (sends hire prompt to worker device)
+
+===============================================================================
+4. HIRE CONFIRMATION APIs
+===============================================================================
+
+-------------------------------------------------------------------------------
+API Endpoint: GET /api/v1/hire-confirmations/pending
+-------------------------------------------------------------------------------
+Source Reference: Tech Spec Section 7 (Hire) & Wireframe Screen 9.1
+Auth Requirement: Authenticated
+Allowed Role: WORKER
+Request Payload: None
+Response Payload (200 OK):
+[
+  {
+    "hire_confirmation_id": "UUID",
+    "job_id": "UUID",
+    "employer_name": "Sharma Electricals",
+    "trade": "ELECTRICAL",
+    "profession": "HELPER",
+    "salary": 18000,
+    "initiated_at": "ISO-8601 Timestamp"
+  }
+]
+Validation Rules: Worker auth required.
+Database Entities Used: hire_confirmations, jobs, employer_profiles
+Business Rules: Returns pending hire confirmation requests where `worker_confirmed IS NULL` and `status = PENDING`.
+Error Conditions: 401 Unauthorized
+Audit Logging Requirement: None
+Redis Dependency: None
+External Integration: None
+
+-------------------------------------------------------------------------------
+API Endpoint: POST /api/v1/hire-confirmations/{id}/respond
+-------------------------------------------------------------------------------
+Source Reference: Tech Spec Section 7 (Hire), Wireframe Screen 9.1 / 9.2 & Phase 0.2 Lifecycle Specification
+Auth Requirement: Authenticated
+Allowed Role: WORKER
+Request Payload:
+{
+  "confirmed": "boolean (mandatory)"
+}
+Response Payload (200 OK):
+{
+  "hire_confirmation_id": "UUID",
+  "status": "CONFIRMED | MISMATCH",
+  "confirmed_at": "ISO-8601 Timestamp"
+}
+Validation Rules: confirmed field boolean mandatory. Pending record must exist.
+Database Entities Used: hire_confirmations, worker_profiles, audit_logs
+Business Rules:
+- If confirmed = true: sets `worker_confirmed = true`, `status = CONFIRMED`. Hire is fully confirmed. Dynamically increments worker's 3-month completed hires count.
+- If confirmed = false: sets `worker_confirmed = false`, `status = MISMATCH`. The hire is NOT confirmed. THE JOB REMAINS `CLOSED` (does not automatically reopen). Employer must create a new job if they wish to search again. Auto-writes `HIRE_MISMATCH_FLAGGED` in `audit_logs` for admin review (BR-004).
+Error Conditions: 400 Bad Request, 404 Not Found
+Audit Logging Requirement: Write to audit_logs ("HIRE_CONFIRMED" or "HIRE_MISMATCH_FLAGGED")
+Redis Dependency: None
+External Integration: None
+
+===============================================================================
+5. CONTACT REVEAL & DEVICE TOKEN APIs
+===============================================================================
+
+-------------------------------------------------------------------------------
+API Endpoint: GET /api/v1/workers/{id}/contact
+-------------------------------------------------------------------------------
+Source Reference: Tech Spec Section 7 (Contact Reveal) & Wireframe Screen 4.2
+Auth Requirement: Authenticated
+Allowed Role: EMPLOYER
+Request Payload: None
+Response Payload (200 OK):
+{
+  "worker_id": "UUID",
+  "full_name": "Raj Kumar",
+  "phone_number": "+919876543210"
+}
+Validation Rules: Employer authenticated session.
+Database Entities Used: worker_profiles, users, audit_logs
+Business Rules: Returns unmasked phone number ONLY on explicit call; creates mandatory audit log entry (BR-Contact).
+Error Conditions: 401 Unauthorized, 403 Forbidden, 404 Not Found
+Audit Logging Requirement: Write to audit_logs ("CONTACT_REVEALED", metadata: { employer_id, worker_id })
+Redis Dependency: None
+External Integration: None
+
+-------------------------------------------------------------------------------
+API Endpoint: POST /api/v1/users/me/fcm-token
+-------------------------------------------------------------------------------
+Source Reference: Tech Spec Section 8 (PWA) & Resolved Decision 9 (FCM Device Model)
+Auth Requirement: Authenticated
+Allowed Role: All authenticated roles
+Request Payload:
+{
+  "fcm_token": "string (mandatory)",
+  "platform": "WEB | ANDROID | IOS (optional, default: WEB)"
+}
+Response Payload (200 OK):
+{
+  "device_id": "UUID",
+  "active": true,
+  "registered_at": "ISO-8601 Timestamp"
+}
+Validation Rules: fcm_token non-empty.
+Database Entities Used: user_devices
+Business Rules:
+- Persists device token into `user_devices` table.
+- Supports multi-device registration per user. Prevents token duplication per user.
+- FCM tokens are NEVER exposed in normal user API responses (BR-DeviceTokens).
+- Deactivated on logout (`active = false` for calling device).
+Error Conditions: 400 Bad Request, 401 Unauthorized
+Audit Logging Requirement: None
+Redis Dependency: None
+External Integration: Firebase Cloud Messaging SDK
+
+-------------------------------------------------------------------------------
+API Endpoint: POST /api/v1/media/upload-url (Phase 7 Implementation Item)
+-------------------------------------------------------------------------------
+Source Reference: Tech Spec Section 7 (File Storage) & Phase 0.2 Phasing Specification
+Auth Requirement: Authenticated
+Allowed Role: All authenticated roles
+Request Payload:
+{
+  "file_name": "string (mandatory)",
+  "content_type": "image/jpeg | image/png (mandatory)"
+}
+Response Payload (200 OK):
+{
+  "upload_url": "string (presigned S3 URL)",
+  "public_url": "string (S3 public image URL)"
+}
+Validation Rules: Image MIME type mandatory.
+Database Entities Used: None
+Business Rules:
+- Generates presigned AWS S3 upload URL for avatar/shop photo uploads.
+- IMPLEMENTATION DEFERRED TO PHASE 7. In Phase 1, UI displays placeholder photo states without invoking this API.
+Error Conditions: 400 Bad Request, 401 Unauthorized
+Audit Logging Requirement: None
+Redis Dependency: None
+External Integration: AWS S3 SDK (Phase 7)
+
+===============================================================================
+6. REPORTS & ADMIN APIs
+===============================================================================
+
+-------------------------------------------------------------------------------
+API Endpoint: POST /api/v1/reports
+-------------------------------------------------------------------------------
+Source Reference: Tech Spec Section 7 (Reports) & Wireframe Screens 8.1, 8.2
+Auth Requirement: Authenticated
+Allowed Role: All authenticated roles
+Request Payload:
+{
+  "reported_id": "UUID (mandatory)",
+  "reason": "NO_SHOW | FAKE_EXPERIENCE | INAPPROPRIATE_BEHAVIOR | OTHER (mandatory)",
+  "details": "string (optional)"
+}
+Response Payload (201 Created):
+{
+  "report_id": "UUID",
+  "message": "Report submitted successfully."
+}
+Validation Rules: valid reported_id, reason ENUM valid, reporter cannot report self.
+Database Entities Used: reports
+Business Rules:
+- Reports are confidential and stored with role-based access control restricted to Admins via Flow 07; reported users NEVER see report contents or reporter identity (BR-005).
+- Database encrypted at rest.
+Error Conditions: 400 Bad Request
+Audit Logging Requirement: Write to audit_logs ("REPORT_FILED")
+Redis Dependency: None
+External Integration: None
+
+-------------------------------------------------------------------------------
+API Endpoint: GET /api/v1/admin/overview
+-------------------------------------------------------------------------------
+Source Reference: Tech Spec Section 7 (Admin) & Wireframe Screen 7.1
+Auth Requirement: Authenticated
+Allowed Role: ADMIN
+Request Payload: None
+Response Payload (200 OK):
+{
+  "total_workers": 142,
+  "total_employers": 38,
+  "active_jobs": 21,
+  "median_hire_time_minutes": 18
+}
+Validation Rules: Admin authority required.
+Database Entities Used: users, worker_profiles, employer_profiles, jobs, hire_confirmations
+Business Rules: Computes North Star pilot metrics including median hire time.
+Error Conditions: 403 Forbidden
+Audit Logging Requirement: None
+Redis Dependency: Caches overview metrics for 60 seconds.
+External Integration: None
+
+-------------------------------------------------------------------------------
+API Endpoint: GET /api/v1/admin/users
+-------------------------------------------------------------------------------
+Source Reference: Tech Spec Section 7 (Admin) & Wireframe Screen 7.2
+Auth Requirement: Authenticated
+Allowed Role: ADMIN
+Query Parameters: role (WORKER/EMPLOYER), search (string), page, limit
+Response Payload (200 OK):
+{
+  "users": [
+    {
+      "user_id": "UUID",
+      "name": "string",
+      "phone": "string",
+      "role": "WORKER | EMPLOYER",
+      "status": "ACTIVE | SUSPENDED",
+      "reports_count": 2
+    }
+  ]
+}
+Validation Rules: Admin authority required.
+Database Entities Used: users, worker_profiles, employer_profiles, reports
+Business Rules: Search and manage platform accounts.
+Error Conditions: 403 Forbidden
+Audit Logging Requirement: None
+Redis Dependency: None
+External Integration: None
+
+-------------------------------------------------------------------------------
+API Endpoint: PATCH /api/v1/admin/users/{id}/suspend
+-------------------------------------------------------------------------------
+Source Reference: Tech Spec Section 7 (Admin) & Wireframe Screen 7.3
+Auth Requirement: Authenticated
+Allowed Role: ADMIN
+Request Payload:
+{
+  "suspended": "boolean (mandatory)"
+}
+Response Payload (200 OK):
+{
+  "user_id": "UUID",
+  "suspended": true,
+  "updated_at": "ISO-8601 Timestamp"
+}
+Validation Rules: Admin authority required.
+Database Entities Used: users, audit_logs
+Business Rules: Suspended users are immediately blocked from authentication and hidden from search results.
+Error Conditions: 403 Forbidden, 404 Not Found
+Audit Logging Requirement: Write to audit_logs ("USER_SUSPENDED" or "USER_REINSTATED")
+Redis Dependency: Invalidates active JWT session in Redis blocklist.
+External Integration: None
+
+-------------------------------------------------------------------------------
+API Endpoint: GET /api/v1/admin/logs
+-------------------------------------------------------------------------------
+Source Reference: Tech Spec Section 7 (Admin), Wireframe Screen 7.4 & Resolved Decision 12 (GAP-MED-003)
+Auth Requirement: Authenticated
+Allowed Role: ADMIN
+Query Parameters (All optional):
+- actor_id (UUID, optional)
+- action (string, optional)
+- start_date (ISO-8601 Timestamp, optional)
+- end_date (ISO-8601 Timestamp, optional)
+- limit (integer, default: 50)
+- offset (integer, default: 0)
+Response Payload (200 OK):
+[
+  {
+    "log_id": "UUID",
+    "timestamp": "ISO-8601 Timestamp",
+    "actor_id": "UUID",
+    "action": "string",
+    "metadata": {}
+  }
+]
+Validation Rules: Admin authority required.
+Database Entities Used: audit_logs
+Business Rules: Inspection of system security and audit event stream with optional multi-parameter filtering (BR-AuditFilter).
+Error Conditions: 403 Forbidden
+Audit Logging Requirement: None
+Redis Dependency: None
+External Integration: None
+===============================================================================

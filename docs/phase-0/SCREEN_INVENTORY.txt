@@ -1,0 +1,909 @@
+===============================================================================
+KAAMSETU — SCREEN INVENTORY (WIREFRAMES V7.0 - REVISED v1.5)
+===============================================================================
+Document Version: 1.5 (Reconciled Phase 0.5 Final Lock Pass)
+Authoritative Input: KaamSetu Wireframes v7.0
+Target Location: /docs/phase-0/SCREEN_INVENTORY.txt
+
+Total Screens Inventoried: 38
+
+-------------------------------------------------------------------------------
+FLOW 01: LOGIN, SIGN UP & WORKER ONBOARDING
+-------------------------------------------------------------------------------
+
+SCREEN ID: 1.0
+Screen Name: Login
+User Role: All (Unauthenticated)
+Entry Point: App Launch / Direct URL (kaamsetu.app/login)
+Exit / Next Actions:
+- Tapping "Log In" -> Authenticates user -> Home (Flow 02) or Dashboard (Flow 06)
+- Tapping "Forgot PIN?" -> Reset PIN Flow (11.1)
+- Tapping "Sign Up" -> Sign Up Choice (1.0b)
+Primary CTA: Log In (btn big)
+Secondary Actions: Forgot PIN? (linktext), Sign Up (linktext)
+Fields:
+- Mobile number (input, mandatory)
+- 6-digit PIN (pinbox digits, mandatory)
+Validations: Mobile number 10 digits, PIN 6 numeric digits.
+States: Default, Invalid Credentials Error, Locked/Rate-limited Error.
+API Dependencies: POST /api/v1/auth/login
+Data Dependencies: users entity
+Navigation Destination: /home (Worker) or /dashboard (Employer) or /admin (Admin)
+Permissions Required: None
+Notifications Involved: None
+Authentication Required: NO
+
+SCREEN ID: 1.0b
+Screen Name: Sign Up Choice
+User Role: All (Unauthenticated)
+Entry Point: Tapping "Sign Up" on 1.0 (kaamsetu.app/signup)
+Exit / Next Actions:
+- Tapping "Join as a Worker" -> Worker Sign Up (1.1)
+- Tapping "Join as an Employer" -> Employer Sign Up (3.1)
+- Tapping Back arrow -> Login (1.0)
+Primary CTA: Join as a Worker (choice-card)
+Secondary Actions: Join as an Employer (choice-card)
+Fields: Role selection choices
+Validations: None
+States: Default
+API Dependencies: None
+Data Dependencies: None
+Navigation Destination: /signup/worker OR /signup/employer
+Permissions Required: None
+Notifications Involved: None
+Authentication Required: NO
+
+SCREEN ID: 1.1
+Screen Name: Worker Sign Up
+User Role: Worker (Unauthenticated)
+Entry Point: Tapping "Join as a Worker" on 1.0b (kaamsetu.app/signup/worker)
+Exit / Next Actions:
+- Tapping "Verify & Continue" -> Work Experience (1.2)
+- Tapping Back arrow -> Sign Up Choice (1.0b)
+Primary CTA: Verify & Continue (btn big)
+Secondary Actions: Back arrow
+Fields:
+- Full name (input, mandatory)
+- Phone number (input, mandatory)
+- Set 6-digit PIN (input, mandatory)
+- Re-enter PIN (input, mandatory)
+- Aadhaar number (input, mandatory - The raw 12-digit Aadhaar number may be transmitted only as part of the secure verification request required by the Aadhaar verification service. It MUST NEVER be persisted in the KaamSetu database, written to application logs, returned in any API response, stored in browser/local/session storage, included in audit metadata, or otherwise retained after verification processing. Phase 1 uses a mock/stub verification service returning aadhaar_ref_id)
+Validations: Name non-empty, phone 10 digits, PIN 6 digits matching Re-enter, Aadhaar 12 digits.
+States: Default, Validation Error, Phone Already Exists Error.
+API Dependencies: POST /api/v1/auth/signup/worker
+Data Dependencies: users
+Navigation Destination: /onboard/experience
+Permissions Required: None
+Notifications Involved: None
+Authentication Required: NO
+
+SCREEN ID: 1.2
+Screen Name: Work Experience (Skill Passport 1/3)
+User Role: Worker (Authenticated / Profile Edit Mode)
+Entry Point: Post 1.1 completion OR Tapping "Edit Profile" on Worker Self-Profile 4.2 (kaamsetu.app/onboard/experience)
+Exit / Next Actions:
+- Tapping "Next: Address" -> Worker Address (1.3)
+- Tapping "+ Add another shop" -> Appends experience input group
+Primary CTA: Next: Address (btn big)
+Secondary Actions: + Add another shop (tag ghost)
+Fields:
+- Total work experience (input, mandatory)
+- Trade (select dropdown, mandatory)
+- Profession (select dropdown, mandatory)
+- Previous shop / employer name (input, mandatory)
+- Duration at this shop (input, mandatory)
+- Languages known (multi-select, mandatory)
+Validations: Total experience numeric, Trade & Profession selected from taxonomy, previous employer non-empty, languages selected.
+States: Default, Multi-shop edit state, Profile Edit mode.
+API Dependencies: PATCH /api/v1/workers/me
+Data Dependencies: worker_profiles, worker_experience
+Navigation Destination: /onboard/address
+Permissions Required: None
+Notifications Involved: None
+Authentication Required: YES
+
+SCREEN ID: 1.3
+Screen Name: Your Address (Skill Passport 2/3)
+User Role: Worker (Authenticated / Profile Edit Mode)
+Entry Point: Post 1.2 completion (kaamsetu.app/onboard/address)
+Exit / Next Actions:
+- Tapping "Next: Preferences" -> Worker Preferences (1.4)
+Primary CTA: Next: Preferences (btn big)
+Secondary Actions: Back arrow
+Fields:
+- House / street (input, mandatory)
+- Area / locality (input, mandatory)
+- City (input, mandatory, default: Noida)
+- Pincode (input, mandatory)
+Validations: Street, area, city non-empty; pincode 6 digits. Geocoded to lat/lon.
+States: Default, Geocoding Failed Warning, Profile Edit mode.
+API Dependencies: PATCH /api/v1/workers/me, Google Maps Geocoding API
+Data Dependencies: worker_profiles.location
+Navigation Destination: /onboard/preferences
+Permissions Required: None
+Notifications Involved: None
+Authentication Required: YES
+
+SCREEN ID: 1.4
+Screen Name: Job Preferences (Skill Passport 3/3)
+User Role: Worker (Authenticated / Profile Edit Mode)
+Entry Point: Post 1.3 completion (kaamsetu.app/onboard/preferences)
+Exit / Next Actions:
+- Tapping "Finish & Continue" -> Location Permission (11.2) or returns to Worker Profile 4.2 if in Edit mode
+Primary CTA: Finish & Continue (btn big)
+Secondary Actions: Back arrow, Set Available toggle switch
+Fields:
+- Preferred salary (₹/month, input, mandatory)
+- Preferred distance (km, input, mandatory)
+- Set myself Available now (toggle switch)
+Validations: Salary numeric positive, distance numeric positive. The "Set myself Available now" toggle switch stores an initial profile preference (is_available boolean) via PATCH /api/v1/workers/me during onboarding in Phase 1. It does NOT invoke PATCH /api/v1/workers/me/availability or start the Phase 3 real-time availability engine.
+States: Available toggle ON/OFF, Profile Edit mode.
+API Dependencies: PATCH /api/v1/workers/me
+Data Dependencies: worker_profiles
+Navigation Destination: /permissions (11.2) or /profile (4.2 self-view)
+Permissions Required: None
+Notifications Involved: None
+Authentication Required: YES
+
+-------------------------------------------------------------------------------
+FLOW 02: WORKER HOME
+-------------------------------------------------------------------------------
+
+SCREEN ID: 2.1
+Screen Name: Worker Home (Available State)
+User Role: Worker
+Entry Point: Login / App Launch / Bottom Nav HOME (kaamsetu.app/home)
+Exit / Next Actions:
+- Toggling Available switch -> Toggles status to OFF (2.2)
+- Tapping Job Card -> Job Detail (2.4)
+- Tapping Bottom Nav JOBS -> My Applications (10.1)
+- Tapping Bottom Nav PROFILE -> Worker Self-Profile (4.2 self-view)
+Primary CTA: Availability Toggle (toggle-row)
+Secondary Actions: Section Cards ("Best Match Today", "Closest Opportunity", "Highest Salary Nearby", "Recently Viewed Jobs")
+Fields:
+- Availability status indicator ("Available — expires in 6h")
+- Best Match Today card (Title, Match %, Employer, Distance, Salary, Why tags)
+- Closest Opportunity card
+- Highest Salary Nearby card
+- Recently Viewed tags
+Validations: None
+States: Available (active green dot), Expiring soon.
+API Dependencies: GET /api/v1/workers/me/home, PATCH /api/v1/workers/me/availability
+Data Dependencies: worker_profiles, jobs, Match Intelligence Engine
+Navigation Destination: /jobs/{id} or /applications or /profile (4.2 self-view)
+Permissions Required: Location (recommended)
+Notifications Involved: In-app match badges
+Authentication Required: YES
+
+SCREEN ID: 2.2
+Screen Name: Worker Home (Expired / Unavailable State)
+User Role: Worker
+Entry Point: Auto-expiry of available_until OR manual toggle OFF (kaamsetu.app/home)
+Exit / Next Actions:
+- Toggling Available switch -> Toggles status to ON (2.1)
+Primary CTA: Turn Available back on (toggle-row)
+Secondary Actions: None
+Fields:
+- Availability status indicator ("Not available — auto-expired")
+- Empty notice banner ("You won't get matched to nearby jobs while unavailable.")
+- Recently Viewed dimmed cards
+Validations: None
+States: Unavailable (grey dot).
+API Dependencies: PATCH /api/v1/workers/me/availability, GET /api/v1/workers/me/home
+Data Dependencies: worker_profiles
+Navigation Destination: /home (switches to 2.1)
+Permissions Required: None
+Notifications Involved: None
+Authentication Required: YES
+
+SCREEN ID: 2.3
+Screen Name: Job Match Notification (Push / Overlay)
+User Role: Worker
+Entry Point: Push notification click / In-app match alert modal (kaamsetu.app/home)
+Exit / Next Actions:
+- Tapping "View Job" -> Job Detail (2.4)
+- Tapping "Dismiss" -> Closes modal back to Home (2.1)
+Primary CTA: View Job (btn)
+Secondary Actions: Dismiss (btn outline)
+Fields:
+- Job title & Role
+- Match % badge (e.g. 94%)
+- Employer name, distance, salary
+- Why match summary tags
+Validations: None
+States: Modal overlay over Home screen.
+API Dependencies: GET /api/v1/jobs/{id}
+Data Dependencies: jobs, worker_profiles
+Navigation Destination: /jobs/{id}
+Permissions Required: Notifications
+Notifications Involved: Firebase Web Push Notification (Phase 7)
+Authentication Required: YES
+
+SCREEN ID: 2.4
+Screen Name: Job Detail
+User Role: Worker
+Entry Point: Tapping Job Card on 2.1, 2.3, or 10.1 (kaamsetu.app/jobs/{id})
+Exit / Next Actions:
+- Tapping "I'm Interested" -> Registers interest -> Redirects to My Applications (10.1)
+- Tapping "Report this employer" -> Report Flow (8.1)
+- Tapping Back arrow -> Worker Home (2.1)
+Primary CTA: I'm Interested (btn big)
+Secondary Actions: Report this employer (linktext)
+Fields:
+- Distance & Match % banner
+- Employer detail card (Name, locality)
+- Role card (Trade, profession, experience required, shift: Day/Night, timing)
+- Salary & Timing card
+- Match Intelligence breakdown card (Trade check, Profession check, Experience check, Distance check, Availability check)
+Validations: Job status must be ACTIVE.
+States: Active, Already Applied state (CTA changes to "Interest Expressed").
+API Dependencies: GET /api/v1/jobs/{id}, POST /api/v1/jobs/{id}/interest
+Data Dependencies: jobs, employer_profiles, job_interests
+Navigation Destination: /applications or /report/{employer_id}
+Permissions Required: None
+Notifications Involved: Triggers employer funnel notification
+Authentication Required: YES
+
+-------------------------------------------------------------------------------
+FLOW 03: EMPLOYER REGISTRATION & PRE-FILLED PROFILE EDIT
+-------------------------------------------------------------------------------
+
+SCREEN ID: 3.1
+Screen Name: Employer Sign Up
+User Role: Employer (Unauthenticated)
+Entry Point: Tapping "Join as an Employer" on 1.0b (kaamsetu.app/signup/employer)
+Exit / Next Actions:
+- Tapping "Continue" -> Business Profile (3.2)
+- Tapping Back arrow -> Sign Up Choice (1.0b)
+Primary CTA: Continue (btn big)
+Secondary Actions: Back arrow
+Fields:
+- Business name (input, mandatory)
+- Owner name (input, mandatory)
+- Phone number (input, mandatory)
+- Set 6-digit PIN (input, mandatory)
+- Re-enter PIN (input, mandatory)
+Validations: Names non-empty, phone 10 digits, PIN 6 digits matching Re-enter.
+States: Default, Error.
+API Dependencies: POST /api/v1/auth/signup/employer
+Data Dependencies: users, employer_profiles
+Navigation Destination: /onboard/business
+Permissions Required: None
+Notifications Involved: None
+Authentication Required: NO
+
+SCREEN ID: 3.2
+Screen Name: Business Details (Business 1/2 & Profile Edit)
+User Role: Employer (Authenticated / Onboarding or Profile Edit)
+Entry Point: Post 3.1 completion OR Tapping Bottom Nav PROFILE on Dashboard 6.1 (kaamsetu.app/onboard/business)
+Exit / Next Actions:
+- Tapping "Next: Address" / "Save Address" -> Business Address (3.3)
+- Tapping "+ ADD SHOP PHOTO" -> Photo upload placeholder state (Phase 1)
+Primary CTA: Next: Address / Save Changes (btn big)
+Secondary Actions: + ADD SHOP PHOTO (placeholder-photo)
+Fields:
+- Shop photo upload (optional placeholder UI state in Phase 1; photo upload does not block onboarding)
+- Business Trade (select dropdown, mandatory)
+- Years in business (input, mandatory)
+- Typical roles you hire for (input/tags, mandatory)
+Validations: Business Trade selected from taxonomy, years numeric positive.
+States: Onboarding Draft state, Pre-filled Profile Edit mode.
+API Dependencies: GET/PATCH /api/v1/employers/me (Note: S3 media upload API POST /api/v1/media/upload-url is deferred to Phase 7 and NOT called in Phase 1)
+Data Dependencies: employer_profiles
+Navigation Destination: /onboard/business-address
+Permissions Required: None in Phase 1. Shop photo is a non-functional placeholder. Camera/file permission and S3 media upload are deferred to Phase 7.
+Notifications Involved: None
+Authentication Required: YES
+
+SCREEN ID: 3.3
+Screen Name: Business Address (Business 2/2 & Profile Edit)
+User Role: Employer (Authenticated / Onboarding or Profile Edit)
+Entry Point: Post 3.2 completion (kaamsetu.app/onboard/business-address)
+Exit / Next Actions:
+- Tapping "Finish & Continue" / "Save Address" -> Navigation to Search (4.1) or Dashboard (6.1)
+Primary CTA: Finish & Continue / Save Address (btn big)
+Secondary Actions: Back arrow
+Fields:
+- Shop / street (input, mandatory)
+- Area / locality (input, mandatory)
+- City (input, mandatory, default: Noida)
+- Pincode (input, mandatory)
+Validations: Street, area, city non-empty, pincode 6 digits. Geocoded to lat/lon.
+States: Onboarding Draft state, Pre-filled Profile Edit mode.
+API Dependencies: PATCH /api/v1/employers/me, Google Maps Geocoding API
+Data Dependencies: employer_profiles.location
+Navigation Destination: /permissions -> /search OR /dashboard
+Permissions Required: None
+Notifications Involved: None
+Authentication Required: YES
+
+-------------------------------------------------------------------------------
+FLOW 04: EMPLOYER SEARCH — PRIMARY ACTION
+-------------------------------------------------------------------------------
+
+SCREEN ID: 4.1
+Screen Name: Search & Filters
+User Role: Employer
+Entry Point: Employer Launch / Dashboard CTA / Bottom Nav SEARCH (kaamsetu.app/search)
+Exit / Next Actions:
+- Tapping Worker Result Card -> Skill Passport (4.2 employer view)
+- Zero results -> No Match Screen (4.3)
+- Tapping Bottom Nav DASHBOARD -> Employer Dashboard (6.1)
+- Tapping Bottom Nav PROFILE -> Pre-filled Business Profile (3.2 edit mode)
+Primary CTA: Filter Selections / Live Worker Cards
+Secondary Actions: Filter Chips (Available Now, Verified, Worked in similar shop, Salary, Exp, Radius)
+Fields:
+- Trade dropdown filter (default: Employer's business trade)
+- Profession dropdown filter
+- Available Now toggle chip
+- Verified toggle chip
+- Similar Shop chip
+- Salary / Experience / Radius filter chips
+- Results count label (e.g. "6 workers found")
+- Worker cards (Name, Available dot, Match %, Trade, Profession, Experience, Distance, Verified badge)
+Validations: Search radius > 0.
+States: Loaded Results, Empty Results (navigates to 4.3). Opens with employer's business trade as default filter.
+API Dependencies: GET /api/v1/search/workers
+Data Dependencies: worker_profiles, worker_experience, PostGIS location
+Navigation Destination: /worker/{id} or /search (zero state 4.3) or /dashboard or /profile (3.2 edit mode)
+Permissions Required: Location (recommended)
+Notifications Involved: None
+Authentication Required: YES
+
+SCREEN ID: 4.2
+Screen Name: Skill Passport (Worker Detail View & Self-Profile View)
+User Role: Employer OR Logged-in Worker (Dual Perspective Screen)
+Entry Point: Tapping Worker Card on 4.1/6.2 (Employer View) OR Tapping Bottom Nav PROFILE on 2.1 (Worker Self-View) (kaamsetu.app/worker/{id})
+Exit / Next Actions:
+- Employer View:
+  * Tapping "View Contact Number" -> Unmasks phone number -> API call
+  * Tapping "Report this worker" -> Report Flow (8.1)
+- Worker Self-View:
+  * Contact Reveal and Report links are HIDDEN.
+  * Displays "Your Skill Passport (Your Profile)" banner.
+  * Tapping "Edit Profile" -> Routes to Work Experience (1.2 edit mode).
+Primary CTA:
+- Employer View: View Contact Number (btn big)
+- Worker Self-View: Edit Profile (btn big)
+Secondary Actions: Report this worker (linktext - Employer view only)
+Fields:
+- Worker photo & name
+- Availability banner & Verified badge
+- Match % (Employer view: match for search context; Worker view: omitted or general match indicator)
+- Core skills tags (self-reported)
+- Experience by trade card
+- Previous employers card
+- Shop categories worked in tags (derived dynamically from unique trade ENUMs in worker_experience)
+- Languages tags
+- Recently completed hires count (derived dynamically via COUNT(hire_confirmations) in 3-month window)
+- Distance & Locality
+Validations: Contact reveal requires active authenticated employer session.
+States: Employer Inspection Mode, Worker Self-Profile Mode.
+API Dependencies: GET /api/v1/workers/{id}, GET /api/v1/workers/{id}/contact (Employer view only)
+Data Dependencies: worker_profiles, worker_experience, hire_confirmations, audit_logs
+Navigation Destination: /report/{worker_id} (Employer view) OR /onboard/experience (Worker self-view)
+Permissions Required: None
+Notifications Involved: None
+Authentication Required: YES
+
+SCREEN ID: 4.3
+Screen Name: No Match (Zero-State & Fallback Trigger)
+User Role: Employer
+Entry Point: Search query returns 0 workers on 4.1 (kaamsetu.app/search)
+Exit / Next Actions:
+- Tapping "Widen Search" -> Advances radius along fixed progression: 1km -> 3km -> 5km -> 10km (capped at 10km) -> Re-runs search
+- Tapping "Post a Job Need Instead" -> Fallback Job Post Form (5.1)
+Primary CTA: Post a Job Need Instead (btn big)
+Secondary Actions: Widen Search (btn big outline)
+Fields:
+- Search parameters header (e.g. Salon / Barber)
+- Zero-state icon & warning message ("No available skilled workers within 1 km right now.")
+- Toast recommendation banner
+Validations: Radius progression capped at 10km.
+States: Zero results state, Max radius reached state (10 km).
+API Dependencies: GET /api/v1/search/workers
+Data Dependencies: None
+Navigation Destination: /search (with widened radius) OR /jobs/new (5.1)
+Permissions Required: None
+Notifications Involved: None
+Authentication Required: YES
+
+-------------------------------------------------------------------------------
+FLOW 05: EMPLOYER JOB POSTING — FALLBACK
+-------------------------------------------------------------------------------
+
+SCREEN ID: 5.1
+Screen Name: Post a Job Need (Fallback Form)
+User Role: Employer
+Entry Point: Tapping "Post a Job Need Instead" on 4.3 OR Dashboard text link (kaamsetu.app/jobs/new)
+Exit / Next Actions:
+- Tapping "Post & Notify Nearby Workers" -> Creates job -> Active Search Progress (5.2)
+- Tapping Back arrow -> Search (4.1)
+Primary CTA: Post & Notify Nearby Workers (btn big)
+Secondary Actions: Back arrow
+Fields:
+- Explanatory toast banner ("No matching worker nearby right now — we'll notify workers...")
+- Trade (select dropdown, mandatory)
+- Profession (select dropdown, mandatory)
+- Experience required (input, mandatory)
+- Salary (₹/mo, input, mandatory)
+- Shift (select dropdown: DAY / NIGHT, mandatory, default: DAY)
+- Timing (input, mandatory)
+Validations: Trade/Profession selected, experience numeric, salary numeric positive, shift selected.
+States: Default, Posting Error.
+API Dependencies: POST /api/v1/jobs
+Data Dependencies: jobs, employer_profiles
+Navigation Destination: /jobs/{id} (5.2)
+Permissions Required: None
+Notifications Involved: Triggers Web Push notifications to matching nearby workers (Phase 7)
+Authentication Required: YES
+
+SCREEN ID: 5.2
+Screen Name: Active Search Progress (Live Job View)
+User Role: Employer
+Entry Point: Post 5.1 submission OR tapping active job on Dashboard (kaamsetu.app/jobs/{id})
+Exit / Next Actions:
+- Tapping Interested Worker Card -> Skill Passport (4.2 employer view)
+- Tapping Back arrow -> Employer Dashboard (6.1)
+Primary CTA: Live Funnel View
+Secondary Actions: Worker cards
+Fields:
+- Job title header (e.g. "Electrical · Helper Needed")
+- Live status banner ("Searching nearby · live t+2min")
+- Hiring Funnel summary component (Notified -> Viewed -> Interested -> Hired)
+- Interested workers list with Match % badges
+Validations: None
+States: Searching live, Workers Responded state.
+API Dependencies: GET /api/v1/jobs/{id}/manage
+Data Dependencies: jobs, job_interests, worker_profiles
+Navigation Destination: /worker/{id} or /dashboard
+Permissions Required: None
+Notifications Involved: Real-time updates on worker response
+Authentication Required: YES
+
+-------------------------------------------------------------------------------
+FLOW 06: EMPLOYER DASHBOARD & JOB MANAGEMENT
+-------------------------------------------------------------------------------
+
+SCREEN ID: 6.1
+Screen Name: Employer Dashboard
+User Role: Employer
+Entry Point: Login / App Launch / Bottom Nav DASHBOARD (kaamsetu.app/dashboard)
+Exit / Next Actions:
+- Tapping "Search Nearby Skilled Workers" -> Search & Filters (4.1)
+- Tapping Job Card -> Job Management (6.2)
+- Tapping "+ Post a Job Need" -> Fallback Form (5.1)
+- Tapping Bottom Nav PROFILE -> Pre-filled Business Profile (3.2 edit mode)
+Primary CTA: Search Nearby Skilled Workers (btn big)
+Secondary Actions: + Post a Job Need (linktext), Job Cards
+Fields:
+- Business name header
+- Top Primary CTA button ("Search Nearby Skilled Workers")
+- Summary metrics cards (Active jobs count, Total hires count)
+- Active job cards with inline mini hiring funnels
+- Closed job cards
+- Secondary link "+ Post a Job Need (if search doesn't work)"
+Validations: None
+States: Active jobs present, First-time Empty State (for new employers with 0 jobs: displays standard empty icon + explanation + Search primary CTA).
+API Dependencies: GET /api/v1/employers/me/dashboard
+Data Dependencies: employer_profiles, jobs, job_interests, hire_confirmations
+Navigation Destination: /search or /jobs/{id}/manage or /jobs/new or /profile (3.2 edit mode)
+Permissions Required: None
+Notifications Involved: None
+Authentication Required: YES
+
+SCREEN ID: 6.2
+Screen Name: Job Detail & Hiring Funnel (Management View)
+User Role: Employer
+Entry Point: Tapping Job Card on Dashboard 6.1 (kaamsetu.app/jobs/{id}/manage)
+Exit / Next Actions:
+- Tapping "Edit Job" -> Opens pre-filled modal calling `PATCH /api/v1/jobs/{id}` (editing experience, salary, shift, timing, radius; trade & profession immutable)
+- Tapping "Close Job" -> Close Job Modal (6.3 - for non-KaamSetu closure reasons)
+- Tapping Interested Worker Card -> Skill Passport (4.2 employer view)
+- Tapping "Report" under worker -> Report Flow (8.1)
+Primary CTA: Interested Workers List / Close Job
+Secondary Actions: Edit Job (btn outline), Close Job (btn outline)
+Fields:
+- Job status banner & posted date
+- Full Hiring Funnel component (Notified, Viewed, Interested, Hired counts)
+- Editable job parameters: Experience, Salary, Shift (Day/Night), Timing, Radius (Trade & Profession immutable)
+- Interested workers card list (Name, Available dot, Match %, distance, experience, Report link)
+Validations: Job must be ACTIVE to edit or close. Closed jobs cannot be edited.
+States: Active, Job Editing Modal active, Closing in progress.
+API Dependencies: GET /api/v1/jobs/{id}/manage, PATCH /api/v1/jobs/{id}
+Data Dependencies: jobs, job_interests, worker_profiles
+Navigation Destination: /jobs/{id}/close or /jobs/{id}/edit or /worker/{id}
+Permissions Required: None
+Notifications Involved: None
+Authentication Required: YES
+
+SCREEN ID: 6.3
+Screen Name: Close Job Reason Modal
+User Role: Employer
+Entry Point: Tapping "Close Job" on 6.2 (kaamsetu.app/jobs/{id}/close)
+Exit / Next Actions:
+- Selecting "Hired someone from KaamSetu" + "Confirm" -> Select Hired Worker (6.4)
+- Selecting other reason (HIRED_ELSEWHERE / NO_LONGER_HIRING) + "Confirm" -> Calls `PATCH /api/v1/jobs/{id}/close` -> Returns to Dashboard (6.1)
+Primary CTA: Confirm (btn big)
+Secondary Actions: Choice cards ("Hired someone from KaamSetu", "Hired someone elsewhere", "No longer hiring")
+Fields:
+- Reason choice cards (selectable)
+Validations: One reason must be selected.
+States: Choice selected.
+API Dependencies: PATCH /api/v1/jobs/{id}/close (for HIRED_ELSEWHERE and NO_LONGER_HIRING only)
+Data Dependencies: jobs
+Navigation Destination: /jobs/{id}/close/select OR /dashboard
+Permissions Required: None
+Notifications Involved: None
+Authentication Required: YES
+
+SCREEN ID: 6.4
+Screen Name: Select Hired Worker
+User Role: Employer
+Entry Point: Selecting "Hired someone from KaamSetu" on 6.3 (kaamsetu.app/jobs/{id}/close/select)
+Exit / Next Actions:
+- Selecting Worker + Tapping "Confirm Hire & Close Job" -> Invokes ONLY `POST /api/v1/jobs/{id}/hire` (atomically creates pending hire confirmation AND transitions job status to CLOSED) -> Returns to Dashboard (6.1)
+Primary CTA: Confirm Hire & Close Job (btn big)
+Secondary Actions: Worker selection radio cards
+Fields:
+- Worker choice list (Workers who responded to this job with radios)
+Validations: One worker must be selected.
+States: Selection active.
+API Dependencies: POST /api/v1/jobs/{id}/hire (Note: PATCH /api/v1/jobs/{id}/close is NOT called for KaamSetu hires)
+Data Dependencies: jobs, hire_confirmations, job_interests
+Navigation Destination: /dashboard
+Permissions Required: None
+Notifications Involved: Triggers hire confirmation prompt to selected worker (9.1)
+Authentication Required: YES
+
+-------------------------------------------------------------------------------
+FLOW 07: ADMIN CONSOLE
+-------------------------------------------------------------------------------
+
+SCREEN ID: 7.1
+Screen Name: Admin Overview
+User Role: Admin
+Entry Point: Admin Login / Direct URL (kaamsetu.app/admin)
+Exit / Next Actions:
+- Tapping "Manage Users" / Bottom Nav USERS -> Manage Users (7.2)
+- Tapping "Audit Logs" / Bottom Nav LOGS -> Audit Logs (7.4)
+Primary CTA: Metric Cards & Quick Links
+Secondary Actions: Bottom Navigation (OVERVIEW, USERS, LOGS)
+Fields:
+- Pilot stats cards: Total Workers (e.g. 142), Total Employers (38), Active Jobs (21), Median Hire Time (18 min)
+- Quick links cards ("Manage Users →", "Audit Logs →")
+Validations: Admin authority check.
+States: Default
+API Dependencies: GET /api/v1/admin/overview
+Data Dependencies: users, worker_profiles, employer_profiles, jobs, hire_confirmations
+Navigation Destination: /admin/users or /admin/logs
+Permissions Required: ADMIN role
+Notifications Involved: None
+Authentication Required: YES (ADMIN)
+
+SCREEN ID: 7.2
+Screen Name: Manage Users
+User Role: Admin
+Entry Point: Tapping USERS tab or Quick Link (kaamsetu.app/admin/users)
+Exit / Next Actions:
+- Tapping User Card -> User Detail (7.3)
+Primary CTA: User Cards list
+Secondary Actions: Search input, Role Filter tabs (Workers / Employers)
+Fields:
+- Role toggle tabs (Workers / Employers)
+- Search by name / phone input
+- User list cards (Name, Trade, Profession, Verification badge, Status: Active / Suspended)
+Validations: None
+States: Workers tab active, Employers tab active, Filtered search results.
+API Dependencies: GET /api/v1/admin/users
+Data Dependencies: users, worker_profiles, employer_profiles
+Navigation Destination: /admin/users/{id}
+Permissions Required: ADMIN role
+Notifications Involved: None
+Authentication Required: YES (ADMIN)
+
+SCREEN ID: 7.3
+Screen Name: User Detail & Suspension
+User Role: Admin
+Entry Point: Tapping User Card on 7.2 (kaamsetu.app/admin/users/{id})
+Exit / Next Actions:
+- Tapping "Reinstate" -> Updates status to Active -> Refresh screen
+- Tapping "Keep Suspended" / "Suspend User" -> Updates status to Suspended -> Writes audit log
+Primary CTA: Reinstate / Suspend Action Buttons
+Secondary Actions: Back arrow
+Fields:
+- User metadata header (Name, Phone, Role, Account Status, Report Count)
+- Report History cards (Reporter role, Reason, Details timestamp)
+- Action buttons ("Reinstate", "Keep Suspended")
+Validations: Admin role check.
+States: Suspended, Active.
+API Dependencies: GET /api/v1/admin/users/{id}, PATCH /api/v1/admin/users/{id}/suspend
+Data Dependencies: users, reports, audit_logs
+Navigation Destination: /admin/users
+Permissions Required: ADMIN role
+Notifications Involved: None
+Authentication Required: YES (ADMIN)
+
+SCREEN ID: 7.4
+Screen Name: Audit Logs
+User Role: Admin
+Entry Point: Tapping LOGS tab on 7.1 (kaamsetu.app/admin/logs)
+Exit / Next Actions:
+- Scrolling timeline entries / Applying filter criteria
+Primary CTA: Filter & Log Entries Timeline
+Secondary Actions: Optional Filter Inputs (actor_id, action, start_date, end_date)
+Fields:
+- Optional Filter inputs (Actor ID, Action string, Date range)
+- Log entry cards (Timestamp, Actor, Action string, Metadata summary)
+Validations: None
+States: Loaded Logs, Filtered Logs.
+API Dependencies: GET /api/v1/admin/logs (with optional query params: actor_id, action, start_date, end_date)
+Data Dependencies: audit_logs
+Navigation Destination: /admin/logs
+Permissions Required: ADMIN role
+Notifications Involved: None
+Authentication Required: YES (ADMIN)
+
+-------------------------------------------------------------------------------
+FLOW 08: REPORT
+-------------------------------------------------------------------------------
+
+SCREEN ID: 8.1
+Screen Name: Report — Select Reason
+User Role: All Authenticated (Worker or Employer)
+Entry Point: Tapping "Report" link on 2.4, 4.2, or 6.2 (kaamsetu.app/report/{id})
+Exit / Next Actions:
+- Selecting Reason + Tapping "Next" -> Add Details (8.2)
+- Tapping Back arrow -> Previous Screen
+Primary CTA: Next (btn big)
+Secondary Actions: Choice cards ("Did not show up", "Fake experience claim", "Inappropriate behavior", "Other")
+Fields:
+- Reason choice cards
+Validations: One reason must be selected.
+States: Choice selected.
+API Dependencies: None (local wizard state)
+Data Dependencies: Target user ID
+Navigation Destination: /report/{id}/details
+Permissions Required: None
+Notifications Involved: None
+Authentication Required: YES
+
+SCREEN ID: 8.2
+Screen Name: Report — Add Details
+User Role: All Authenticated
+Entry Point: Tapping "Next" on 8.1 (kaamsetu.app/report/{id}/details)
+Exit / Next Actions:
+- Tapping "Submit Report" -> Submits report -> Report Submitted (8.3)
+Primary CTA: Submit Report (btn big)
+Secondary Actions: Back arrow
+Fields:
+- Selected reason summary banner
+- Additional details text area (optional)
+Validations: None
+States: Submitting, Default.
+API Dependencies: POST /api/v1/reports
+Data Dependencies: reports
+Navigation Destination: /report/confirmation (8.3)
+Permissions Required: None
+Notifications Involved: None
+Authentication Required: YES
+
+SCREEN ID: 8.3
+Screen Name: Report Submitted Confirmation
+User Role: All Authenticated
+Entry Point: Post 8.2 submission (kaamsetu.app/report/confirmation)
+Exit / Next Actions:
+- Tapping "Back to Home" -> Redirects to Role Home (/home or /dashboard)
+Primary CTA: Back to Home (btn big outline)
+Secondary Actions: None
+Fields:
+- Success message banner ("Thanks — our team will review this and take action if needed.")
+Validations: None
+States: Success state.
+API Dependencies: None
+Data Dependencies: None
+Navigation Destination: /home or /dashboard
+Permissions Required: None
+Notifications Involved: None
+Authentication Required: YES
+
+-------------------------------------------------------------------------------
+FLOW 09: HIRE CONFIRMATION
+-------------------------------------------------------------------------------
+
+SCREEN ID: 9.1
+Screen Name: Two-Sided Hire Confirmation Prompt
+User Role: Worker
+Entry Point: In-app prompt overlay when employer marks worker hired (kaamsetu.app/home)
+Exit / Next Actions:
+- Tapping "Yes, I joined" -> Confirms hire -> Confirmed Banner (9.2)
+- Tapping "No, I didn't join" -> Records rejection/mismatch -> Returns to Home
+Primary CTA: Yes, I joined (btn)
+Secondary Actions: No, I didn't join (btn outline)
+Fields:
+- Employer name card (e.g. "Sharma Electricals marked you as hired")
+- Role & Salary details
+- Confirmation question ("Did you join Sharma Electricals?")
+Validations: Pending hire confirmation record must exist.
+States: Prompt open.
+API Dependencies: GET /api/v1/hire-confirmations/pending, POST /api/v1/hire-confirmations/{id}/respond
+Data Dependencies: hire_confirmations, jobs, employer_profiles
+Navigation Destination: /home (with 9.2 banner)
+Permissions Required: None
+Notifications Involved: Push notification alerts worker to respond (Phase 7)
+Authentication Required: YES
+
+SCREEN ID: 9.2
+Screen Name: Hire Confirmed Success Screen
+User Role: Worker
+Entry Point: Responding "Yes, I joined" on 9.1 (kaamsetu.app/home)
+Exit / Next Actions:
+- Tapping "View My Applications" -> My Applications (10.1)
+Primary CTA: View My Applications (btn big outline)
+Secondary Actions: None
+Fields:
+- Success icon & message ("You and Sharma Electricals both confirmed this hire.")
+- Explanation note ("This now counts toward your 'recently completed hires' on your Skill Passport.")
+Validations: Both sides confirmed.
+States: Confirmed state.
+API Dependencies: None
+Data Dependencies: hire_confirmations, worker_profiles
+Navigation Destination: /applications
+Permissions Required: None
+Notifications Involved: None
+Authentication Required: YES
+
+-------------------------------------------------------------------------------
+FLOW 10: MY APPLICATIONS
+-------------------------------------------------------------------------------
+
+SCREEN ID: 10.1
+Screen Name: My Applications
+User Role: Worker
+Entry Point: Bottom Nav JOBS tab / CTA on 9.2 (kaamsetu.app/applications)
+Exit / Next Actions:
+- Tapping Application Card -> Job Detail (2.4)
+- Empty state -> First-Time Empty State (11.4)
+Primary CTA: Application Cards List
+Secondary Actions: Bottom Navigation (HOME, JOBS, PROFILE)
+Fields:
+- Application cards (Role, Status badge: Pending / Filled / Hired, Employer name, Match %, Applied timestamp)
+Validations: None
+States: Loaded Applications, First-time Empty State (11.4).
+API Dependencies: GET /api/v1/workers/me/applications
+Data Dependencies: job_interests, jobs, employer_profiles
+Navigation Destination: /jobs/{id}
+Permissions Required: None
+Notifications Involved: None
+Authentication Required: YES
+
+-------------------------------------------------------------------------------
+FLOW 11: SYSTEM & EDGE-CASE STATES
+-------------------------------------------------------------------------------
+
+SCREEN ID: 11.1
+Screen Name: Forgot PIN (Recovery Flow)
+User Role: All (Unauthenticated)
+Entry Point: Tapping "Forgot PIN?" on Login 1.0 (kaamsetu.app/forgot-pin)
+Exit / Next Actions:
+- Tapping "Send OTP" -> Triggers OTP SMS -> Enables OTP input
+- Tapping "Reset PIN & Log In" -> Verifies OTP & updates PIN -> Login (1.0)
+Primary CTA: Reset PIN & Log In (btn big)
+Secondary Actions: Send OTP (btn big)
+Fields:
+- Mobile number (input, mandatory)
+- Enter OTP (input, mandatory post OTP send)
+- New 6-digit PIN (input, mandatory)
+- Re-enter new PIN (input, mandatory)
+Validations: Mobile 10 digits, OTP 6 digits, PIN 6 digits matching Re-enter.
+States: Step 1 (Mobile only), Step 2 (OTP + New PIN fields active).
+API Dependencies: POST /api/v1/auth/forgot-pin/request-otp, POST /api/v1/auth/forgot-pin/reset
+Data Dependencies: users
+Navigation Destination: /login
+Permissions Required: SMS (for OTP reception)
+Notifications Involved: OTP SMS
+Authentication Required: NO
+
+SCREEN ID: 11.2
+Screen Name: Location Permission Prompt
+User Role: All Roles (Post-Onboarding)
+Entry Point: Post onboarding completion (1.4 / 3.3) (kaamsetu.app/permissions)
+Exit / Next Actions:
+- Tapping "Allow Location" -> Triggers OS location prompt -> Navigates to Home/Search
+- Tapping "Not now" -> Bypasses prompt -> Navigates to Home/Search
+Primary CTA: Allow Location (btn big)
+Secondary Actions: Not now (linktext)
+Fields:
+- Permission icon & explanation header ("Allow location access")
+- Value proposition note ("We use this to find jobs and workers near you...")
+Validations: Browser Geolocation API availability.
+States: Prompting, Granted, Denied.
+API Dependencies: Browser navigator.geolocation API
+Data Dependencies: None
+Navigation Destination: /home (Worker) or /search (Employer)
+Permissions Required: Location
+Notifications Involved: None
+Authentication Required: YES
+
+SCREEN ID: 11.3
+Screen Name: Notification Permission Prompt
+User Role: All Roles (Post-Onboarding)
+Entry Point: Following Location Permission 11.2 (kaamsetu.app/permissions)
+Exit / Next Actions:
+- Tapping "Allow Notifications" -> Triggers Browser Notification permission prompt -> Navigates to Home/Search
+- Tapping "Not now" -> Bypasses prompt -> Navigates to Home/Search
+Primary CTA: Allow Notifications (btn big)
+Secondary Actions: Not now (linktext)
+Fields:
+- Permission icon & explanation header ("Allow notifications")
+- Value proposition note ("Get notified the moment a matching job or worker appears nearby...")
+Validations: Browser Notification API availability.
+States: Prompting, Granted, Denied client UI states (Phase 1).
+API Dependencies: None in Phase 1 (Browser Notification.requestPermission() UI state only. FCM SDK integration, token registration API POST /api/v1/users/me/fcm-token, and push delivery infrastructure are explicitly deferred to Phase 7).
+Data Dependencies: None in Phase 1
+Navigation Destination: /home (Worker) or /search (Employer)
+Permissions Required: Notifications
+Notifications Involved: None in Phase 1 (Firebase Web Push registration in Phase 7)
+Authentication Required: YES
+
+SCREEN ID: 11.4
+Screen Name: First-Time Empty State (Applications)
+User Role: Worker
+Entry Point: Accessing My Applications 10.1 with 0 interest history (kaamsetu.app/applications)
+Exit / Next Actions:
+- Tapping "Go to Home" -> Redirects to Worker Home (2.1)
+Primary CTA: Go to Home (btn big)
+Secondary Actions: None
+Fields:
+- Empty folder icon
+- Explanation text ("You haven't shown interest in any jobs yet. Head to Home...")
+Validations: None
+States: Zero applications state.
+API Dependencies: GET /api/v1/workers/me/applications (returns empty array)
+Data Dependencies: job_interests
+Navigation Destination: /home
+Permissions Required: None
+Notifications Involved: None
+Authentication Required: YES
+
+SCREEN ID: 11.5
+Screen Name: Offline Mode Banner & Cached View
+User Role: All Roles
+Entry Point: Network disconnect detected while navigating (kaamsetu.app/home)
+Exit / Next Actions:
+- Network reconnection -> Dismisses banner -> Resumes live syncing
+Primary CTA: Static Cached Views
+Secondary Actions: None
+Fields:
+- Offline toast banner ("You're offline. Showing last saved results — availability toggle...")
+- Cached content list (labeled "(cached)")
+- Disabled interactive controls (Availability toggle disabled)
+Validations: navigator.onLine check.
+States: Offline active.
+API Dependencies: Service Worker Cache Storage API (Phase 7)
+Data Dependencies: IndexedDB / Cache Storage
+Navigation Destination: Current page (offline fallback)
+Permissions Required: None
+Notifications Involved: None
+Authentication Required: YES (cached session)
+
+SCREEN ID: 11.6
+Screen Name: Session Timeout Screen
+User Role: All Roles
+Entry Point: JWT token expiration / 401 Unauthorized response (kaamsetu.app/login)
+Exit / Next Actions:
+- Entering PIN + Tapping "Log Back In" -> Re-authenticates -> Returns to previous page
+Primary CTA: Log Back In (btn big)
+Secondary Actions: None
+Fields:
+- Session expired icon & notice ("You've been logged out for your security.")
+- 6-digit PIN input fields
+Validations: PIN 6 numeric digits.
+States: Expired session.
+API Dependencies: POST /api/v1/auth/login
+Data Dependencies: users
+Navigation Destination: Previous authenticated screen
+Permissions Required: None
+Notifications Involved: None
+Authentication Required: RE-AUTH REQUIRED
+===============================================================================

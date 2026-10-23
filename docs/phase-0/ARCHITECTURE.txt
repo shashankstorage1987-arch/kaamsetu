@@ -1,0 +1,108 @@
+===============================================================================
+KAAMSETU — TECHNICAL SYSTEM ARCHITECTURE SPECIFICATION (REVISED v1.2)
+===============================================================================
+Document Version: 1.2 (Reconciled Phase 0.2 Final Consistency Pass)
+Authoritative Inputs: KaamSetu Technical Build Specification v1.0 (Section 2 & 3)
+Target Location: /docs/phase-0/ARCHITECTURE.txt
+
+===============================================================================
+1. SYSTEM TOPOLOGY DIAGRAM
+===============================================================================
+
+[ Next.js PWA Client ] (Mobile Viewport ~375-414px / Web Push Service Worker)
+        |
+        | HTTPS / REST / Bearer JWT
+        v
+[ Spring Boot Backend API ] (Java 17 / Spring Security Interceptors)
+        |
+        +---> [ PostgreSQL 15 + PostGIS ] (Relational Storage, Spatial Queries & user_devices - 10 Tables)
+        |
+        +---> [ Redis Cache ] (Session State, Availability TTL, PIN Rate Limiting)
+        |
+        +---> [ Firebase Cloud Messaging ] (Web Push Match Notifications via user_devices)
+        |
+        +---> [ AWS S3 Bucket ] (Shop & Avatar Media Storage - Phase 7 Integration)
+        |
+        +---> [ Google Maps Geocoding API ] (Address to Lat/Lon Translation)
+
+===============================================================================
+2. LAYER-BY-LAYER ARCHITECTURE
+===============================================================================
+
+-------------------------------------------------------------------------------
+2.1 FRONTEND ARCHITECTURE (Next.js / React / TypeScript / Tailwind CSS)
+-------------------------------------------------------------------------------
+- Form Factor: Mobile-first responsive web application (~375–414px viewport) built for embedding into native Android/iOS shells via WebView.
+- PWA Configuration: Next.js PWA Service Worker caching app shell, static assets, fonts, and recent Home/Search payloads for offline execution (Flow 11.5).
+- Styling & Design System: Tailwind CSS enforcing low-digital-literacy standards (minimum 44px touch targets, high contrast, icon + short label pairings).
+- Profile Routing Architecture:
+  * Employer PROFILE tab: Navigates to Business Details (3.2) & Business Address (3.3) in pre-filled edit mode (BR-EmpProfile).
+  * Worker PROFILE tab: Navigates to Skill Passport (4.2 self-view) displaying "Edit Profile" CTA routing to 1.2/1.3/1.4 (BR-WorkerProfile).
+- State Management: React Context API for Auth Context and User Preferences; SWR / React Query for client-side data fetching and optimistic availability toggling.
+
+-------------------------------------------------------------------------------
+2.2 BACKEND ARCHITECTURE (Spring Boot 3 / Java 17 / Spring Security)
+-------------------------------------------------------------------------------
+- Pattern: Monolithic Stateless REST Architecture (No microservices at pilot scale).
+- Security Filter Chain: Spring Security intercepting every incoming request:
+  * Extract Bearer JWT from `Authorization` header.
+  * Validate signature, expiration, and Redis blocklist status.
+  * Populate `SecurityContextHolder` with `UserPrincipal` (User ID, Role).
+- Aadhaar Security & Privacy Pipeline (BR-Aadhaar):
+  * UI collects 12-digit Aadhaar during worker signup.
+  * Backend verifies against integration provider, persisting `aadhaar_verified = TRUE` and `aadhaar_ref_id` ONLY.
+  * RAW 12-DIGIT AADHAAR NUMBERS ARE DISCARDED IMMEDIATELY IN MEMORY, NEVER STORED IN DATABASE, NEVER LOGGED, AND NEVER EXPOSED IN API RESPONSES.
+  * Provider integration marked: `PENDING INTEGRATION DECISION`.
+- Exception Handling: Global `@ControllerAdvice` mapping domain exceptions to standardized JSON error responses.
+
+-------------------------------------------------------------------------------
+2.3 DATABASE LAYER (PostgreSQL 15 + PostGIS Extension)
+-------------------------------------------------------------------------------
+- Relational Storage: Strict foreign key enforcement across 10 domain tables (including `user_devices`).
+- Spatial Operations: All distance and radius queries executed natively via PostGIS `ST_DWithin` and `ST_Distance` on `geography(Point, 4326)` columns.
+- Indexing Strategy:
+  * GiST spatial indexes on `worker_profiles.location`, `employer_profiles.location`, `jobs.location`.
+  * Composite B-Tree indexes on `(is_available, available_until)` and `(trade, profession)`.
+  * Partial index on `user_devices(user_id) WHERE active = TRUE`.
+
+-------------------------------------------------------------------------------
+2.4 CACHING & SESSION LAYER (Redis)
+-------------------------------------------------------------------------------
+- Real-time Availability Cache: Key `worker_avail:{worker_id}` with 12-hour TTL tracking active availability states.
+- PIN Security Rate Limiting: Key `login_attempts:{phone_number}` counting failed attempts with 15-minute TTL.
+- Token Blocklist: Key `jwt_blocklist:{jti}` storing invalidated tokens post-logout or account suspension.
+
+-------------------------------------------------------------------------------
+2.5 NOTIFICATION & DEVICE PERSISTENCE ARCHITECTURE (FCM & user_devices)
+-------------------------------------------------------------------------------
+- Device Persistence Model: Client registers Web Push tokens via `POST /api/v1/users/me/fcm-token`, persisting token into `user_devices` table (`id`, `user_id`, `fcm_token`, `platform`, `active`).
+- Multi-Device Support: Users can register multiple browsers/devices; duplicate tokens per user are prevented. Each device session maintains its own token identity.
+- Multi-Device Logout Semantics: Logging out (`POST /auth/logout`) deactivates ONLY the calling device's active FCM token in `user_devices` (`active = false`). Other active devices belonging to the user remain registered and active. FCM tokens are never treated as a single user-level token.
+- Push Pipeline: Server dispatches FCM HTTP v1 notifications to all active device tokens when:
+  * A new fallback job is posted (`POST /jobs`) matching nearby workers.
+  * An employer selects a worker for hiring (`POST /jobs/{id}/hire`).
+
+-------------------------------------------------------------------------------
+2.6 FILE STORAGE (AWS S3 - Phase 7 Integration)
+-------------------------------------------------------------------------------
+- Phased Implementation: Media upload presigned URL generation (`POST /api/v1/media/upload-url`) and AWS S3 integration are explicitly deferred to Phase 7.
+- Phase 1 Handling: In Phase 1 onboarding and profile screens (3.2), UI displays photo placeholder states per wireframe. No actual S3 upload API is invoked. Photo upload is optional and does not block employer onboarding.
+- Upload Protocol (Phase 7): Server generates short-lived presigned S3 URLs (`POST /media/upload-url`) allowing frontend to upload images directly to S3.
+
+-------------------------------------------------------------------------------
+2.7 AUDIT LOGGING & SECURITY BOUNDARIES
+-------------------------------------------------------------------------------
+- Security Interceptor: Intercepts state-changing operations and logs immutable events into `audit_logs`:
+  * Contact reveals (`CONTACT_REVEALED`)
+  * Job updates (`JOB_UPDATED`)
+  * Account suspensions (`USER_SUSPENDED`)
+  * Two-sided hire mismatches (`HIRE_MISMATCH_FLAGGED`)
+- Contact Shielding Boundary: Worker phone numbers masked across all general search/profile endpoints; unmasked ONLY upon explicit `GET /workers/{id}/contact` API invocation.
+
+-------------------------------------------------------------------------------
+2.8 PILOT DEPLOYMENT ASSUMPTIONS
+-------------------------------------------------------------------------------
+- Scale: Single hyper-narrow geographic market in Noida (~hundreds of active users).
+- Hosting Infrastructure: AWS ECS / Beanstalk for Spring Boot REST API, AWS RDS PostgreSQL + PostGIS instance, AWS ElastiCache Redis, Vercel / CloudFront for Next.js PWA.
+- Containers/Kubernetes: Deferred until post-pilot expansion.
+===============================================================================

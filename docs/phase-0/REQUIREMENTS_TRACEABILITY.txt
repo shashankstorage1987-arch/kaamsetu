@@ -1,0 +1,67 @@
+===============================================================================
+KAAMSETU — MASTER REQUIREMENTS TRACEABILITY MATRIX (REVISED v1.3)
+===============================================================================
+Document Version: 1.4 (Reconciled Phase 0.4 Final Reconciliation Pass)
+Authoritative Inputs: KaamSetu Wireframes v7.0 & Technical Build Specification v1.0
+Target Location: /docs/phase-0/REQUIREMENTS_TRACEABILITY.txt
+
+Every requirement in this matrix is directly derived from the source-of-truth files.
+
++---------+----------------------------------------------+------------+-----------+---------+-------------------------------+-------------------+---------+-------+-----------------------------+---------+
+| Req ID  | Requirement Description                      | Source     | Role      | Screen  | Backend API                   | DB Entity         | BR ID   | Phase | Test Requirement            | Status  |
++---------+----------------------------------------------+------------+-----------+---------+-------------------------------+-------------------+---------+-------+-----------------------------+---------+
+| UI-001  | Mobile login screen with phone & 6-digit PIN  | Wireframe  | All       | 1.0     | POST /auth/login              | users             | BR-006  | Phase1| Verify phone/PIN auth       | PENDING |
+| UI-002  | Role selection choice screen (Worker/Employer)| Wireframe | All       | 1.0b    | N/A                           | N/A               | N/A     | Phase1| Verify role routing         | PENDING |
+| UI-003  | Worker registration form with Aadhaar ID     | Wireframe  | Worker    | 1.1     | POST /auth/signup/worker      | users (`ref_id`)  | BR-003  | Phase1| Verify Aadhaar ref id status| PENDING |
+| UI-004  | Work experience Skill Passport setup (1/3)   | Wireframe  | Worker    | 1.2     | PATCH /workers/me             | worker_experience | BR-003  | Phase1| Verify experience saving    | PENDING |
+| UI-005  | Address capture screen with geocoding        | Wireframe  | Worker    | 1.3     | PATCH /workers/me             | worker_profiles   | N/A     | Phase1| Verify address geocoding    | PENDING |
+| UI-006  | Job preferences & Available Now initial pref | Wireframe  | Worker    | 1.4     | PATCH /workers/me             | worker_profiles   | BR-002  | Phase1| Verify onboarding initial pref| PENDING|
+| UI-007  | Worker Home displaying 4 sectioned cards     | Wireframe  | Worker    | 2.1     | GET /workers/me/home          | worker_profiles   | BR-Match| Phase3| Verify sectioned jobs       | PENDING |
+| UI-008  | Expired availability state notification banner| Wireframe | Worker    | 2.2     | PATCH /workers/me/availability| worker_profiles   | BR-002  | Phase3| Verify auto-expiry state    | PENDING |
+| UI-009  | Match Push Notification popup modal          | Wireframe  | Worker    | 2.3     | GET /jobs/{id}                | jobs              | N/A     | Phase3,7| Verify push match popup   | PENDING |
+| UI-010  | Job Detail view with 5-factor match breakdown| Wireframe | Worker    | 2.4     | GET /jobs/{id}, POST interest | job_interests     | BR-Match| Phase3| Verify match breakdown      | PENDING |
+| UI-011  | Employer registration & pre-filled edit      | Wireframe  | Employer  | 3.1-3.3 | POST/PATCH /employers/me      | employer_profiles | BR-007  | Phase1| Verify profile edit (photo UI optional in P1)| PENDING|
+| UI-012  | Search Nearby Skilled Workers results view   | Wireframe  | Employer  | 4.1     | GET /search/workers           | worker_profiles   | BR-001  | Phase2| Verify search & filters     | PENDING |
+| UI-013  | Worker Skill Passport inspection & self-view | Wireframe  | Dual      | 4.2     | GET /workers/{id}             | worker_profiles   | BR-003  | Phase2| Verify dual view & Edit CTA | PENDING |
+| UI-014  | Zero-match state with Widen Search (1-10km)  | Wireframe  | Employer  | 4.3     | GET /search/workers           | N/A               | BR-001  | Phase2| Verify 1-10km progression    | PENDING |
+| UI-015  | Post a Job Need fallback form with shift     | Wireframe  | Employer  | 5.1     | POST /jobs                    | jobs (`shift`)    | BR-001  | Phase4| Verify job creation & shift | PENDING |
+| UI-016  | Active Search Progress & live hiring funnel  | Wireframe  | Employer  | 5.2     | GET /jobs/{id}/manage         | job_interests     | N/A     | Phase4| Verify funnel counts        | PENDING |
+| UI-017  | Employer Dashboard with top Search CTA & 0-job state| Wireframe| Employer| 6.1   | GET /employers/me/dashboard   | jobs               | BR-001  | Phase4| Verify dashboard & empty state| PENDING|
+| UI-018  | Job Management view & Edit Job pre-filled modal| Wireframe| Employer  | 6.2     | GET/PATCH /jobs/{id}          | jobs               | N/A     | Phase4| Verify active job edit       | PENDING |
+| UI-019  | Close Job reason modal (non-KaamSetu reasons) | Wireframe  | Employer  | 6.3     | PATCH /jobs/{id}/close         | jobs              | N/A     | Phase4| Verify non-KaamSetu close    | PENDING |
+| UI-020  | Select Hired Worker screen (KaamSetu hire)   | Wireframe  | Employer  | 6.4     | POST /jobs/{id}/hire (atomic)  | hire_confirmations | BR-004  | Phase4| Verify atomic hire selection | PENDING |
+| UI-021  | Admin Overview metrics dashboard              | Wireframe  | Admin     | 7.1     | GET /admin/overview            | jobs, users        | N/A     | Phase6| Verify KPI calculations      | PENDING |
+| UI-022  | Admin Manage Users table                      | Wireframe  | Admin     | 7.2     | GET /admin/users               | users              | N/A     | Phase6| Verify user search & filter  | PENDING |
+| UI-023  | User Detail & account suspension control      | Wireframe  | Admin     | 7.3     | PATCH /admin/users/{id}/suspend| users              | N/A     | Phase6| Verify account suspension    | PENDING |
+| UI-024  | System Audit Logs viewer with query filters   | Wireframe  | Admin     | 7.4     | GET /admin/logs                | audit_logs         | N/A     | Phase6| Verify log filters           | PENDING |
+| UI-025  | Three-step confidential user report wizard    | Wireframe  | All       | 8.1-8.3 | POST /reports                  | reports            | BR-005  | Phase6| Verify report submission     | PENDING |
+| UI-026  | Two-sided Hire Confirmation prompt modal      | Wireframe  | Worker    | 9.1-9.2 | POST /hire-confirmations/respond| hire_confirmations| BR-004  | Phase5| Verify hire confirmation     | PENDING |
+| UI-027  | My Applications list screen                   | Wireframe  | Worker    | 10.1    | GET /workers/me/applications   | job_interests     | N/A     | Phase5| Verify application list      | PENDING |
+| UI-028  | Forgot PIN recovery form with OTP             | Wireframe  | All       | 11.1    | POST /auth/forgot-pin/reset    | users              | BR-006  | Phase1| Verify PIN recovery          | PENDING |
+| UI-029  | Location & Notification permission prompts    | Wireframe  | All       | 11.2,11.3| N/A (UI state in P1)           | user_devices       | N/A     | Phase1,7| Verify permission prompts UI| PENDING|
+| UI-030  | Offline Mode cached view & banner             | Wireframe  | All       | 11.5    | Service Worker                 | Cache Storage      | N/A     | Phase7| Verify offline mode          | PENDING |
+| UI-031  | Session Timeout re-authentication screen      | Wireframe  | All       | 11.6    | POST /auth/login               | users              | N/A     | Phase1| Verify session re-auth       | PENDING |
+| API-001 | Auth endpoints (Worker/Employer/Login/PIN)    | Tech Spec  | All       | Various | /auth/*                        | users              | BR-006  | Phase1| Verify auth API suite        | PENDING |
+| API-002 | Worker profile, availability, home APIs       | Tech Spec  | Worker    | Various | /workers/*                     | worker_profiles    | BR-002  | Phase1,3| P1: profile pref; P3: availability engine & home APIs | PENDING |
+| API-003 | Employer search, profile, job APIs            | Tech Spec  | Employer  | Various | /search/*, /jobs/*             | employer_profiles  | BR-001  | Phase2,4| Verify employer APIs       | PENDING |
+| API-004 | Contact reveal API with audit logging         | Tech Spec  | Employer  | 4.2     | GET /workers/{id}/contact      | worker_profiles    | BR-Contact| Phase2| Verify contact unmasking   | PENDING |
+| API-005 | Two-sided hire confirmation APIs              | Tech Spec  | Worker    | 9.1     | /hire-confirmations/*          | hire_confirmations | BR-004  | Phase5| Verify hire response APIs    | PENDING |
+| API-006 | Confidential reporting API                    | Tech Spec  | All       | 8.2     | POST /reports                  | reports            | BR-005  | Phase6| Verify report submission API | PENDING |
+| API-007 | Admin metrics, user management, audit logs APIs| Tech Spec | Admin     | 7.1-7.4 | /admin/*                       | users, audit_logs  | N/A     | Phase6| Verify admin API security    | PENDING |
+| API-008 | Edit active job endpoint                      | Res Dec 5  | Employer  | 6.2     | PATCH /jobs/{id}               | jobs, audit_logs   | N/A     | Phase4| Verify job edit & audit log  | PENDING |
+| API-009 | FCM device token registration endpoint        | Res Dec 9  | All       | 11.3    | POST /users/me/fcm-token       | user_devices       | N/A     | Phase7| Verify device token API      | PENDING |
+| DB-001  | Relational schema with PostGIS spatial points | Tech Spec  | System    | N/A     | N/A                            | 10 Core Tables     | N/A     | Phase1| Verify schema migrations     | PENDING |
+| DB-002  | User device tokens persistence table          | Res Dec 9  | System    | 11.3    | POST /users/me/fcm-token       | user_devices       | N/A     | Phase1,7| Phase 1 schema creation; Phase 7 token registration and operational use | PENDING |
+| BR-001  | Search-first, posting as fallback rule        | Tech Spec  | Employer  | 4.1, 5.1| N/A                            | N/A                | BR-001  | Phase2| Verify search-first priority| PENDING |
+| BR-002  | Server-side availability auto-expiry rule     | Tech Spec  | Worker    | 2.1, 2.2| PATCH /workers/me/availability | worker_profiles    | BR-002  | Phase3| Verify auto-expiry filter    | PENDING |
+| BR-003  | ID-only worker verification & self-reported skills| Tech Spec| Worker  | 1.1, 4.2| POST /auth/signup/worker       | users (`ref_id`)   | BR-003  | Phase1| Verify Aadhaar ref id stub   | PENDING |
+| BR-004  | Two-sided hire confirmation & mismatch audit  | Tech Spec  | System    | 9.1, 6.4| POST /jobs/{id}/hire           | hire_confirmations| BR-004  | Phase4,5| Verify atomic hire selection| PENDING |
+| BR-005  | One-directional admin-only report privacy     | Tech Spec  | System    | 8.2, 7.3| POST /reports                  | reports            | BR-005  | Phase6| Verify report privacy        | PENDING |
+| BR-006  | PIN login only; OTP for Forgot PIN only       | Tech Spec  | All       | 1.0, 11.1| /auth/login, /auth/forgot-pin | users              | BR-006  | Phase1| Verify login PIN requirement | PENDING |
+| BR-007  | Phone-only employer verification              | Tech Spec  | Employer  | 3.1     | POST /auth/signup/employer     | users              | BR-007  | Phase1| Verify employer signup       | PENDING |
+| BR-Match| 5-factor Match Intelligence scoring engine    | Tech Spec  | System    | 2.4, 4.1| GET /search/workers            | N/A                | BR-Match| Phase2| Verify exact scoring math    | PENDING |
+| NFR-001 | Search API response target < 1 second         | Tech Spec  | Employer  | 4.1     | GET /search/workers            | N/A                | NFR-001 | Phase2| Execute performance test     | PENDING |
+| NFR-002 | PIN hashing via bcrypt/argon2                 | Tech Spec  | System    | 1.0     | POST /auth/*                   | users              | NFR-002 | Phase1| Verify hash security         | PENDING |
+| NFR-003 | Minimum 44px touch targets                    | Wireframe  | All       | All     | N/A                            | NFR-003 | Phase1| Execute UI accessibility audit| PENDING|
++---------+----------------------------------------------+------------+-----------+---------+-------------------------------+-------------------+---------+-------+-----------------------------+---------+
+===============================================================================

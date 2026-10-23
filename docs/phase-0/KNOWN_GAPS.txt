@@ -1,0 +1,98 @@
+===============================================================================
+KAAMSETU — KNOWN GAPS & RECONCILIATION AUDIT
+===============================================================================
+Document Version: 1.3
+Reconciled Phase 0.5 Final Lock Pass
+Authoritative Inputs: KaamSetu Wireframes v7.0 & Technical Build Specification v1.0
+Target Location: /docs/phase-0/KNOWN_GAPS.txt
+
+This document records the complete reconciliation status of all gaps, ambiguities,
+and specification discrepancies identified during Phase 0 analysis.
+
+===============================================================================
+1. RESOLVED GAPS SUMMARY
+===============================================================================
+
+-------------------------------------------------------------------------------
+GAP ID: GAP-CRIT-001 — Employer Profile Screen
+-------------------------------------------------------------------------------
+Status: RESOLVED
+Decision: Existing Business Details (3.2) and Business Address (3.3) screens will be reused in pre-filled edit mode when an employer accesses the PROFILE bottom-navigation tab post-onboarding.
+Resolution Impact: No separate employer profile design required.
+
+-------------------------------------------------------------------------------
+GAP ID: GAP-CRIT-002 — Worker Self-Profile Screen
+-------------------------------------------------------------------------------
+Status: RESOLVED
+Decision: Skill Passport (4.2) is reused for worker self-profile view. Logged-in worker view displays "Your Skill Passport (Your Profile)" banner, hides Contact Reveal & Report links, and shows a prominent "Edit Profile" button routing through 1.2/1.3/1.4.
+Resolution Impact: Dual-perspective screen built for 4.2; no new profile design needed.
+
+-------------------------------------------------------------------------------
+GAP ID: GAP-CRIT-003 — "Shop Categories Worked In" Data Model
+-------------------------------------------------------------------------------
+Status: RESOLVED
+Decision: No new `shop_category` database column added. "Shop categories worked in" is derived dynamically from unique `trade` ENUM values present in the worker's `worker_experience` records (`SELECT DISTINCT trade FROM worker_experience`).
+Resolution Impact: Schema remains clean; actual employer names remain in `previous_employer_name`.
+
+-------------------------------------------------------------------------------
+GAP ID: GAP-HIGH-001 — "Recently Completed Hires" Count Calculation
+-------------------------------------------------------------------------------
+Status: RESOLVED
+Decision: No cached counter added to `worker_profiles`. Calculated dynamically via `COUNT(hire_confirmations) WHERE worker_id = worker AND status = 'CONFIRMED' AND confirmed_at >= NOW() - INTERVAL '3 months'`.
+Resolution Impact: Derived metric cleanly executed at query time.
+
+-------------------------------------------------------------------------------
+GAP ID: GAP-HIGH-002 — Edit Job API Specification
+-------------------------------------------------------------------------------
+Status: RESOLVED
+Decision: Added `PATCH /api/v1/jobs/{id}` endpoint allowing employers to edit ACTIVE job parameters (`experience_required_years`, `salary`, `shift`, `timing`, `radius_km`). `trade` and `profession` remain immutable post-creation for MVP. Edits write a `JOB_UPDATED` audit log.
+Resolution Impact: API specification complete for job editing lifecycle.
+
+-------------------------------------------------------------------------------
+GAP ID: GAP-HIGH-003 — Widen Search Radius Progression
+-------------------------------------------------------------------------------
+Status: RESOLVED
+Decision: Implemented radius progression: 1 km -> 3 km -> 5 km -> 10 km (capped at 10 km for MVP). Tapping "Widen Search" advances to the next radius step, re-runs search preserving filters, and caps at 10 km without adding extra UI modals or sliders.
+Resolution Impact: Clear, deterministic radius expansion algorithm.
+
+-------------------------------------------------------------------------------
+GAP ID: GAP-MED-001 — "Shift" Field in `jobs` Table Schema
+-------------------------------------------------------------------------------
+Status: RESOLVED
+Decision: Added `shift ENUM('DAY','NIGHT') DEFAULT 'DAY'` column to `jobs` table schema. Mandatory field in Job Posting UI (5.1).
+Resolution Impact: Database schema aligned with wireframe 5.1 input form.
+
+-------------------------------------------------------------------------------
+GAP ID: GAP-MED-002 — Employer First-Time Empty State
+-------------------------------------------------------------------------------
+Status: RESOLVED
+Decision: Applied established KaamSetu empty state pattern (Icon + short explanation + single dominant CTA "Search Nearby Skilled Workers"). Search opens with employer's business trade as default filter.
+Resolution Impact: First-use employer UX defined cleanly.
+
+-------------------------------------------------------------------------------
+GAP ID: GAP-MED-003 — Audit Log Filter Parameters
+-------------------------------------------------------------------------------
+Status: RESOLVED
+Decision: Defined optional query parameters on `GET /api/v1/admin/logs`: `actor_id`, `action`, `start_date`, `end_date`.
+Resolution Impact: Admin audit log endpoint fully specified.
+
+===============================================================================
+2. PENDING INTEGRATION DECISIONS (NON-BLOCKING)
+===============================================================================
+
+-------------------------------------------------------------------------------
+GAP ID: GAP-INTEG-001 — Aadhaar Verification Provider Integration
+-------------------------------------------------------------------------------
+Status: PENDING INTEGRATION DECISION
+Description: The UI collects Aadhaar for worker registration (1.1). Backend represents verification status via `aadhaar_verified` and `aadhaar_ref_id`. The raw 12-digit Aadhaar number may be transmitted only as part of the secure verification request required by the Aadhaar verification service. It MUST NEVER be persisted in the KaamSetu database, written to application logs, returned in any API response, stored in browser/local/session storage, included in audit metadata, or otherwise retained after verification processing. The specific third-party Aadhaar OTP/e-KYC API provider (e.g. Sandbox, Digilocker API) is not yet selected.
+Impact: Non-blocking for Phase 1. MVP will use a mock/stub verification service returning a simulated reference ID token (`aadhaar_ref_id`).
+
+===============================================================================
+3. PHASE 1 BLOCKERS
+===============================================================================
+
+PHASE 1 BLOCKERS COUNT: 0
+
+Zero blocking ambiguities remain. All 11 wireframe flows, 22 API capability groups covering the complete REST endpoint surface (32 concrete endpoints), 10 database entities, and core business rules are fully specified and traceable.
+Phase 1 implementation can begin immediately upon receiving explicit user instruction.
+===============================================================================

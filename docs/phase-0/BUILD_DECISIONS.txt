@@ -1,0 +1,217 @@
+===============================================================================
+KAAMSETU — BUILD DECISIONS & RECONCILIATION LOG (REVISED v1.4)
+===============================================================================
+Document Version: 1.4 (Reconciled Phase 0.4 Final Reconciliation Pass)
+Authoritative Inputs: KaamSetu Technical Build Specification v1.0 & Wireframes v7.0
+Target Location: /docs/phase-0/BUILD_DECISIONS.txt
+
+This document records all confirmed architectural, product, and technical design decisions.
+All initial Phase 0 decision requests have been fully resolved and confirmed.
+
+===============================================================================
+1. CONFIRMED PRODUCT & DOMAIN RULES
+===============================================================================
+
+-------------------------------------------------------------------------------
+DECISION ID: DEC-001
+-------------------------------------------------------------------------------
+Decision: Employer discovery is strictly Search-First; Job Posting is Fallback.
+Reason: Technical Build Specification (Section 1 & 6) and Wireframes v7.0 (Flow 04 vs Flow 05).
+Details: Search Nearby Skilled Workers is Flow 04 and the top primary CTA on the Employer Dashboard (6.1). Posting a job is Flow 05 and is explicitly framed as a fallback when search yields no results. Posting a job is NEVER a bottom-nav tab or equally weighted to search.
+Status: CONFIRMED BY SOURCE.
+
+-------------------------------------------------------------------------------
+DECISION ID: DEC-002
+-------------------------------------------------------------------------------
+Decision: Hard scope exclusion of Chat, Payments, Attendance, Payroll, and Ratings.
+Reason: Technical Build Specification (Hard Scope Constraint preamble & PRD rules).
+Details: Under no circumstances will messaging, payment gateways, attendance tracking, payroll, reviews, or commission systems be implemented in this build.
+Status: CONFIRMED BY SOURCE.
+
+-------------------------------------------------------------------------------
+DECISION ID: DEC-003
+-------------------------------------------------------------------------------
+Decision: PIN is the primary login mechanism; OTP is restricted EXCLUSIVELY to Forgot PIN recovery.
+Reason: Technical Build Specification (Section 6, Rule 6) and Wireframes v7.0 (Flow 01.0 vs Flow 11.1).
+Details: Everyday login and signup set a 6-digit PIN. SMS OTP is invoked ONLY when a user triggers Forgot PIN recovery (11.1).
+Status: CONFIRMED BY SOURCE.
+
+-------------------------------------------------------------------------------
+DECISION ID: DEC-004
+-------------------------------------------------------------------------------
+Decision: Worker verification is ID-only (Aadhaar reference) for MVP; Employer verification is Phone-only.
+Reason: Technical Build Specification (Section 4 schema & Section 6, Rules 3 & 7).
+Details: Workers provide Aadhaar ID number during signup. Skill tags and experience records are self-reported and labeled as unverified. Employers verify via phone number only.
+Status: CONFIRMED BY SOURCE.
+
+-------------------------------------------------------------------------------
+DECISION ID: DEC-005
+-------------------------------------------------------------------------------
+Decision: Server-side enforcement of Worker Availability auto-expiry.
+Reason: Technical Build Specification (Section 6, Rule 2) & Wireframe 2.2.
+Details: Toggling availability sets `available_until = NOW() + 12 hours`. Server queries and background logic evaluate `available_until > NOW()`, auto-expiring availability regardless of client state.
+Status: CONFIRMED BY SOURCE.
+
+-------------------------------------------------------------------------------
+DECISION ID: DEC-006
+-------------------------------------------------------------------------------
+Decision: Two-Sided Hire Confirmation Lifecycle & State Machine.
+Reason: Technical Build Specification (Section 6, Rule 4), Wireframes Flow 09 & Phase 0.2 Specification.
+Details: Employer selection (`POST /jobs/{id}/hire`) creates a `hire_confirmations` record (`employer_confirmed = true`, `worker_confirmed = NULL`, `status = PENDING`) AND immediately sets `jobs.status = CLOSED`. Worker responds YES -> `worker_confirmed = true`, `status = CONFIRMED`. Worker responds NO -> `worker_confirmed = false`, `status = MISMATCH`; the job REMAINS `CLOSED` (does not automatically reopen). Auto-writes an `audit_logs` record (`HIRE_MISMATCH_FLAGGED`).
+Status: CONFIRMED BY SOURCE.
+
+-------------------------------------------------------------------------------
+DECISION ID: DEC-007
+-------------------------------------------------------------------------------
+Decision: One-directional, admin-reviewed user reporting.
+Reason: Technical Build Specification (Section 6, Rule 5) & Wireframe Flow 08.
+Details: Reports filed against workers or employers are confidential and visible ONLY to Admins via Flow 07. Reported users never see report contents or reporter identity. Database encrypted at rest.
+Status: CONFIRMED BY SOURCE.
+
+-------------------------------------------------------------------------------
+DECISION ID: DEC-008
+-------------------------------------------------------------------------------
+Decision: PostGIS Spatial Indexing (`ST_DWithin`) for location-based radius queries.
+Reason: Technical Build Specification (Section 2, 3, 4).
+Details: Geocoded addresses are stored as PostGIS `geography(Point, 4326)` columns with GiST spatial indexes. Distance math is executed natively in PostgreSQL; workers outside radius are completely excluded.
+Status: CONFIRMED BY SOURCE.
+
+-------------------------------------------------------------------------------
+DECISION ID: DEC-009
+-------------------------------------------------------------------------------
+Decision: Dynamic Match Intelligence query scoring with snapshotting at interest expression.
+Reason: Technical Build Specification (Section 5).
+Details: Match % is calculated dynamically during search using 5 weighted factors (Trade 35%, Profession 30%, Experience 15%, Distance 15%, Availability 5%). Upon expressing interest (`POST /jobs/{id}/interest`), the percentage is snapshotted into `job_interests.match_score`.
+Status: CONFIRMED BY SOURCE.
+
+-------------------------------------------------------------------------------
+DECISION ID: DEC-010
+-------------------------------------------------------------------------------
+Decision: Contact number shielding with explicit unmasking API call and audit logging.
+Reason: Technical Build Specification (Section 7, Contact Reveal API) & Wireframe 4.2.
+Details: Worker phone numbers are masked in general search payloads and revealed ONLY upon calling `GET /api/v1/workers/{id}/contact`, which creates an audit log entry.
+Status: CONFIRMED BY SOURCE.
+
+===============================================================================
+2. RESOLVED PHASE 0.1 & 0.2 ARCHITECTURAL DECISIONS
+===============================================================================
+
+-------------------------------------------------------------------------------
+DECISION ID: DEC-RES-001 — Employer Profile Experience (GAP-CRIT-001)
+-------------------------------------------------------------------------------
+Decision: Existing Business Details (3.2) and Business Address (3.3) screens are used in pre-filled edit mode when an employer accesses the PROFILE bottom-nav tab post-onboarding.
+Reason: User instruction (Phase 0.1).
+Status: RESOLVED & CONFIRMED.
+
+-------------------------------------------------------------------------------
+DECISION ID: DEC-RES-002 — Worker Self-Profile Experience (GAP-CRIT-002)
+-------------------------------------------------------------------------------
+Decision: Skill Passport (4.2) is reused for worker self-profile view. Logged-in worker view displays "Your Skill Passport (Your Profile)" banner, hides Contact Reveal & Report links, and shows a prominent "Edit Profile" button routing through 1.2/1.3/1.4.
+Reason: User instruction (Phase 0.1).
+Status: RESOLVED & CONFIRMED.
+
+-------------------------------------------------------------------------------
+DECISION ID: DEC-RES-003 — "Shop Categories Worked In" Data Model (GAP-CRIT-003)
+-------------------------------------------------------------------------------
+Decision: DO NOT add a `shop_category` database column. "Shop categories worked in" is derived dynamically from unique `trade` ENUM values present in the worker's `worker_experience` records (`SELECT DISTINCT trade FROM worker_experience`).
+Reason: User instruction (Phase 0.1).
+Status: RESOLVED & CONFIRMED.
+
+-------------------------------------------------------------------------------
+DECISION ID: DEC-RES-004 — "Recently Completed Hires" Calculation (GAP-HIGH-001)
+-------------------------------------------------------------------------------
+Decision: DO NOT add a cached counter to `worker_profiles`. Derived dynamically at query time via `COUNT(hire_confirmations) WHERE worker_id = worker AND status = 'CONFIRMED' AND confirmed_at >= NOW() - INTERVAL '3 months'`.
+Reason: User instruction (Phase 0.1).
+Status: RESOLVED & CONFIRMED.
+
+-------------------------------------------------------------------------------
+DECISION ID: DEC-RES-005 — Edit Job API Specification (GAP-HIGH-002)
+-------------------------------------------------------------------------------
+Decision: Add `PATCH /api/v1/jobs/{id}` endpoint allowing owning employers to edit ACTIVE jobs (editable: `experience_required_years`, `salary`, `shift`, `timing`, `radius_km`; `trade` and `profession` immutable for MVP). Every edit writes a `JOB_UPDATED` audit log.
+Reason: User instruction (Phase 0.1).
+Status: RESOLVED & CONFIRMED.
+
+-------------------------------------------------------------------------------
+DECISION ID: DEC-RES-006 — Widen Search Radius Progression (GAP-HIGH-003)
+-------------------------------------------------------------------------------
+Decision: Implemented radius progression: 1 km -> 3 km -> 5 km -> 10 km (capped at 10 km for MVP). Tapping "Widen Search" advances radius, re-runs search preserving filters, and remains capped at 10 km.
+Reason: User instruction (Phase 0.1).
+Status: RESOLVED & CONFIRMED.
+
+-------------------------------------------------------------------------------
+DECISION ID: DEC-RES-007 — Shift Field in Job Model (GAP-MED-001)
+-------------------------------------------------------------------------------
+Decision: Added `shift ENUM('DAY','NIGHT') DEFAULT 'DAY'` column to `jobs` table schema. Mandatory in Job Posting UI (5.1).
+Reason: User instruction (Phase 0.1).
+Status: RESOLVED & CONFIRMED.
+
+-------------------------------------------------------------------------------
+DECISION ID: DEC-RES-008 — Aadhaar Data Privacy & Non-Persistence
+-------------------------------------------------------------------------------
+Decision: The raw 12-digit Aadhaar number may be transmitted only as part of the secure verification request required by the Aadhaar verification service. It MUST NEVER be persisted in the KaamSetu database, written to application logs, returned in any API response, stored in browser/local/session storage, included in audit metadata, or otherwise retained after verification processing. Backend performs verification against integration provider, persisting `aadhaar_verified = TRUE` and verification reference token `aadhaar_ref_id` ONLY. Verification provider marked `PENDING INTEGRATION DECISION`.
+Reason: User instruction (Phase 0.1 & Phase 0.5).
+Status: RESOLVED & CONFIRMED.
+
+-------------------------------------------------------------------------------
+DECISION ID: DEC-RES-009 — FCM Multi-Device Token Persistence & Logout Semantics
+-------------------------------------------------------------------------------
+Decision: Dedicated `user_devices` table created (`id`, `user_id`, `fcm_token`, `platform`, `active`) as part of database schema foundation in Phase 1 (operational token registration and push delivery in Phase 7). Supports multi-device registration per user via `POST /api/v1/users/me/fcm-token` in Phase 7. Logging out (`POST /auth/logout`) in Phase 7 deactivates ONLY the calling device's active token in `user_devices` (`active = false`). Other active devices belonging to the user remain registered and active. FCM tokens are NEVER exposed in normal user API responses.
+Reason: User instruction (Phase 0.1, Phase 0.2 & Phase 0.4).
+Status: RESOLVED & CONFIRMED.
+
+-------------------------------------------------------------------------------
+DECISION ID: DEC-RES-010 — Match Intelligence Exact Math Correction
+-------------------------------------------------------------------------------
+Decision: Match algorithm math is fixed: Trade 35%, Profession 30%, Experience 15%, Distance 15%, Availability 5%. Removed any mention of custom radius calibration. Worked Example A produces strictly 88.0%. Wireframe percentage badges (such as 94%) are illustrative UI placeholders only.
+Reason: User instruction (Phase 0.1).
+Status: RESOLVED & CONFIRMED.
+
+-------------------------------------------------------------------------------
+DECISION ID: DEC-RES-011 — Employer First-Time Empty State (GAP-MED-002)
+-------------------------------------------------------------------------------
+Decision: Employer Dashboard first-use empty state follows standard empty state pattern (Icon + short explanation + primary CTA "Search Nearby Skilled Workers"). Search opens with employer's business trade as default filter.
+Reason: User instruction (Phase 0.1).
+Status: RESOLVED & CONFIRMED.
+
+-------------------------------------------------------------------------------
+DECISION ID: DEC-RES-012 — Audit Log Filter Parameters (GAP-MED-003)
+-------------------------------------------------------------------------------
+Decision: Defined optional query parameters on `GET /api/v1/admin/logs`: `actor_id`, `action`, `start_date`, `end_date`.
+Reason: User instruction (Phase 0.1).
+Status: RESOLVED & CONFIRMED.
+
+-------------------------------------------------------------------------------
+DECISION ID: DEC-RES-013 — Employer Photo Upload Phasing
+-------------------------------------------------------------------------------
+Decision: In Phase 1, employer onboarding UI (3.2) displays photo placeholder state per wireframe. No actual S3 upload API (`POST /api/v1/media/upload-url`) is invoked in Phase 1 (S3 integration is explicitly deferred to Phase 7). Photo upload is optional and does not block employer onboarding.
+Reason: User instruction (Phase 0.2).
+Status: RESOLVED & CONFIRMED.
+
+-------------------------------------------------------------------------------
+DECISION ID: DEC-RES-014 — user_devices / FCM Phasing Boundary (Phase 0.4)
+-------------------------------------------------------------------------------
+Decision: Phase 1 creates the `user_devices` table as part of the database schema foundation. Phase 1 does NOT register FCM tokens, does NOT call `POST /api/v1/users/me/fcm-token`, does NOT integrate Firebase Cloud Messaging SDK, does NOT send push notifications, and does NOT persist FCM tokens into `user_devices`. `user_devices` exists structurally in Phase 1 but remains unused until Phase 7 when FCM Web Push SDK integration, token registration, and multi-device push notifications are implemented.
+Reason: User instruction (Phase 0.4 Final Decision #1).
+Status: RESOLVED & CONFIRMED.
+
+-------------------------------------------------------------------------------
+DECISION ID: DEC-RES-015 — Worker Availability Phasing Boundary (Phase 0.4)
+-------------------------------------------------------------------------------
+Decision: Phase 1 onboarding (Screen 1.4) displays "Set myself Available now" as an INITIAL PROFILE PREFERENCE (`is_available` boolean flag stored via worker profile update API). Phase 1 MUST NOT implement `PATCH /api/v1/workers/me/availability`, server-side availability state transitions, `available_until` lifecycle management, automatic availability expiry, availability countdown logic, server-side availability filtering, Redis-backed real-time availability caching, or Worker Home availability state engine (all deferred to Phase 3).
+Reason: User instruction (Phase 0.4 Final Decision #2).
+Status: RESOLVED & CONFIRMED.
+
+-------------------------------------------------------------------------------
+DECISION ID: DEC-RES-016 — Explicit Phase 1 Non-Scope Definition (Phase 0.4)
+-------------------------------------------------------------------------------
+Decision: Added an explicit "PHASE 1 NOT IN SCOPE (EXPLICIT NON-SCOPE)" section to `BUILD_PLAN.txt` listing 31 non-scope capabilities that MUST NOT be implemented in Phase 1 (search, matching, jobs, hire funnel, admin, FCM, S3, PWA offline, etc.).
+Reason: User instruction (Phase 0.4 Final Decision #3).
+Status: RESOLVED & CONFIRMED.
+
+-------------------------------------------------------------------------------
+DECISION ID: DEC-RES-017 — API Count Terminology Standardization (Phase 0.4)
+-------------------------------------------------------------------------------
+Decision: Reconciled terminology around API count across all Phase 0 documentation to "22 API capability groups covering the complete REST endpoint surface (32 concrete endpoints)".
+Reason: User instruction (Phase 0.4 Final Decision #4).
+Status: RESOLVED & CONFIRMED.
+===============================================================================

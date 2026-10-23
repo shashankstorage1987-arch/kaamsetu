@@ -1,0 +1,335 @@
+===============================================================================
+KAAMSETU — DATABASE MODEL & IMPLEMENTATION SPECIFICATION (REVISED v1.5)
+===============================================================================
+Document Version: 1.5 (Reconciled Phase 0.5 Final Lock Pass)
+Authoritative Input: KaamSetu Technical Build Specification v1.0 (Section 4)
+Target Location: /docs/phase-0/DATABASE_IMPLEMENTATION.txt
+
+Database Engine: PostgreSQL 15+
+Extensions Required: PostGIS (postgis), uuid-ossp
+
+Total Relational Entities: 10 PostgreSQL Tables
+
+===============================================================================
+1. GLOBAL ENUMS & DOMAINS
+===============================================================================
+
+CREATE TYPE user_role AS ENUM ('WORKER', 'EMPLOYER', 'ADMIN');
+
+CREATE TYPE trade_type AS ENUM (
+  'ELECTRICAL',
+  'HARDWARE',
+  'SALON',
+  'GROCERY',
+  'RESTAURANT',
+  'MEDICAL',
+  'GARAGE',
+  'OTHER'
+);
+
+CREATE TYPE profession_type AS ENUM (
+  'HELPER',
+  'BILLER',
+  'SALES',
+  'BARBER',
+  'WAITER',
+  'MECHANIC',
+  'CASHIER',
+  'DELIVERY',
+  'OTHER'
+);
+
+CREATE TYPE shift_type AS ENUM ('DAY', 'NIGHT');
+
+CREATE TYPE job_status AS ENUM ('ACTIVE', 'CLOSED');
+
+CREATE TYPE job_close_reason AS ENUM (
+  'HIRED_VIA_KAAMSETU',
+  'HIRED_ELSEWHERE',
+  'NO_LONGER_HIRING'
+);
+
+CREATE TYPE application_status AS ENUM (
+  'NOTIFIED',
+  'VIEWED',
+  'INTERESTED',
+  'HIRED',
+  'NOT_SELECTED'
+);
+
+CREATE TYPE hire_status AS ENUM ('PENDING', 'CONFIRMED', 'MISMATCH');
+
+CREATE TYPE report_reason AS ENUM (
+  'NO_SHOW',
+  'FAKE_EXPERIENCE',
+  'INAPPROPRIATE_BEHAVIOR',
+  'OTHER'
+);
+
+===============================================================================
+2. ENTITY SPECIFICATIONS (10 POSTGRESQL TABLES)
+===============================================================================
+
+-------------------------------------------------------------------------------
+1. TABLE: users
+-------------------------------------------------------------------------------
+Description: Core identity table shared across Workers, Employers, and Admins.
+
+COLUMNS:
+- id                   UUID PRIMARY KEY DEFAULT gen_random_uuid()
+- phone_number         VARCHAR(15) UNIQUE NOT NULL
+- pin_hash             VARCHAR(255) NOT NULL
+- role                 user_role NOT NULL
+- aadhaar_verified     BOOLEAN DEFAULT FALSE NOT NULL
+- aadhaar_ref_id       VARCHAR(100) NULL -- External verification reference token ONLY
+- suspended            BOOLEAN DEFAULT FALSE NOT NULL
+- created_at           TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
+- updated_at           TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
+
+CONSTRAINTS & INDEXES:
+- PK: PRIMARY KEY (id)
+- UQ: UNIQUE (phone_number)
+- IDX: idx_users_phone ON users(phone_number)
+- IDX: idx_users_role_status ON users(role, suspended)
+
+PRIVACY & SECURITY RULES (BR-Aadhaar):
+- The raw 12-digit Aadhaar number may be transmitted only as part of the secure verification request required by the Aadhaar verification service. It MUST NEVER be persisted in the KaamSetu database, written to application logs, returned in any API response, stored in browser/local/session storage, included in audit metadata, or otherwise retained after verification processing.
+- Only verification status (`aadhaar_verified`) and verification reference token (`aadhaar_ref_id`) are persisted. Raw Aadhaar is discarded immediately after verification processing.
+- External verification provider marked: `PENDING INTEGRATION DECISION`.
+
+RELATIONSHIPS:
+- 1:1 with worker_profiles (id -> user_id)
+- 1:1 with employer_profiles (id -> user_id)
+- 1:N with user_devices (id -> user_id)
+- 1:N with reports (id -> reporter_id / reported_id)
+- 1:N with audit_logs (id -> actor_id)
+
+-------------------------------------------------------------------------------
+2. TABLE: user_devices (Web Push Device Tokens)
+-------------------------------------------------------------------------------
+Description: Phase 1 schema creation; Phase 7 token registration and operational use. Device token persistence model supporting Web Push FCM notifications across multiple browser/mobile devices per user.
+
+COLUMNS:
+- id           UUID PRIMARY KEY DEFAULT gen_random_uuid()
+- user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE
+- fcm_token    VARCHAR(512) NOT NULL
+- platform     VARCHAR(20) DEFAULT 'WEB' NOT NULL
+- active       BOOLEAN DEFAULT TRUE NOT NULL
+- created_at   TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
+- updated_at   TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
+
+CONSTRAINTS & INDEXES:
+- PK: PRIMARY KEY (id)
+- UQ: UNIQUE (user_id, fcm_token) -- Prevents duplicate tokens per user
+- FK: FOREIGN KEY (user_id) REFERENCES users(id)
+- INDEX: idx_user_devices_active ON user_devices(user_id) WHERE active = TRUE
+
+BUSINESS & MULTI-DEVICE LOGOUT SEMANTICS (BR-DeviceTokens):
+- Table created structurally in Phase 1 database foundation; remains unused for token registration during Phase 1.
+- Supports multi-device registration per user. Each device has its own device/token identity in Phase 7.
+- FCM tokens are NEVER exposed in normal user API responses.
+- Logging out (`POST /auth/logout`) deactivates ONLY the calling device's active FCM token in `user_devices` (`active = false`). Other active devices belonging to the user remain registered and active. FCM tokens are never treated as a single user-level token.
+
+-------------------------------------------------------------------------------
+3. TABLE: worker_profiles (The "Skill Passport")
+-------------------------------------------------------------------------------
+Description: Extended profile data for worker accounts.
+
+COLUMNS:
+- user_id                 UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE
+- full_name               VARCHAR(100) NOT NULL
+- total_experience_years  NUMERIC(4, 1) DEFAULT 0.0 NOT NULL
+- languages               TEXT[] DEFAULT '{}' NOT NULL
+- preferred_salary        INTEGER NULL
+- preferred_distance_km   NUMERIC(4, 1) DEFAULT 5.0 NOT NULL
+- is_available            BOOLEAN DEFAULT FALSE NOT NULL -- Initial profile preference stored in Phase 1 onboarding; Phase 3 real-time availability engine
+- available_until         TIMESTAMP WITH TIME ZONE NULL -- Managed via Phase 3 availability engine (NOW() + 12h)
+- address_line            VARCHAR(255) NULL
+- area                    VARCHAR(100) NULL
+- city                    VARCHAR(100) NULL
+- pincode                 VARCHAR(10) NULL
+- location                GEOGRAPHY(Point, 4326) NULL
+- photo_url               VARCHAR(512) NULL
+- created_at              TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
+- updated_at              TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
+
+CONSTRAINTS & INDEXES:
+- PK: PRIMARY KEY (user_id)
+- FK: FOREIGN KEY (user_id) REFERENCES users(id)
+- SPATIAL INDEX: idx_worker_location USING GIST (location)
+- COMPOSITE INDEX: idx_worker_avail ON worker_profiles(is_available, available_until) WHERE is_available = TRUE
+
+DERIVED METRICS (No Cached Columns Added):
+- "Recently completed hires" (3-month window): Calculated dynamically via:
+  `SELECT COUNT(*) FROM hire_confirmations WHERE worker_id = :id AND status = 'CONFIRMED' AND confirmed_at >= NOW() - INTERVAL '3 months'`
+
+-------------------------------------------------------------------------------
+4. TABLE: worker_experience
+-------------------------------------------------------------------------------
+Description: Work history per shop/employer supporting multi-trade experience.
+
+COLUMNS:
+- id                      UUID PRIMARY KEY DEFAULT gen_random_uuid()
+- worker_id               UUID NOT NULL REFERENCES worker_profiles(user_id) ON DELETE CASCADE
+- trade                   trade_type NOT NULL
+- profession              profession_type NOT NULL
+- previous_employer_name  VARCHAR(150) NOT NULL
+- duration_months         INTEGER NOT NULL CHECK (duration_months > 0)
+- core_skills             TEXT[] DEFAULT '{}' NOT NULL
+- created_at              TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
+
+CONSTRAINTS & INDEXES:
+- PK: PRIMARY KEY (id)
+- FK: FOREIGN KEY (worker_id) REFERENCES worker_profiles(user_id)
+- COMPOSITE INDEX: idx_worker_exp_search ON worker_experience(trade, profession, worker_id)
+
+DERIVED METRICS (No `shop_category` Column Added):
+- "Shop categories worked in": Derived dynamically from unique `trade` ENUM values present in worker's experience records:
+  `SELECT DISTINCT trade FROM worker_experience WHERE worker_id = :id`
+
+-------------------------------------------------------------------------------
+5. TABLE: employer_profiles
+-------------------------------------------------------------------------------
+Description: Business details for employer accounts.
+
+COLUMNS:
+- user_id                 UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE
+- business_name           VARCHAR(150) NOT NULL
+- owner_name              VARCHAR(100) NOT NULL
+- business_trade          trade_type NOT NULL
+- years_in_business       INTEGER DEFAULT 0 NOT NULL
+- typical_roles_hired     TEXT[] DEFAULT '{}' NOT NULL
+- photo_url               VARCHAR(512) NULL
+- address_line            VARCHAR(255) NULL
+- area                    VARCHAR(100) NULL
+- city                    VARCHAR(100) NULL
+- pincode                 VARCHAR(10) NULL
+- location                GEOGRAPHY(Point, 4326) NULL
+- created_at              TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
+- updated_at              TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
+
+CONSTRAINTS & INDEXES:
+- PK: PRIMARY KEY (user_id)
+- FK: FOREIGN KEY (user_id) REFERENCES users(id)
+- SPATIAL INDEX: idx_employer_location USING GIST (location)
+
+-------------------------------------------------------------------------------
+6. TABLE: jobs
+-------------------------------------------------------------------------------
+Description: Job postings created as fallbacks when search comes up empty.
+
+COLUMNS:
+- id                         UUID PRIMARY KEY DEFAULT gen_random_uuid()
+- employer_id                UUID NOT NULL REFERENCES employer_profiles(user_id) ON DELETE CASCADE
+- trade                      trade_type NOT NULL
+- profession                 profession_type NOT NULL
+- experience_required_years NUMERIC(4, 1) DEFAULT 0.0 NOT NULL
+- salary                     INTEGER NOT NULL CHECK (salary > 0)
+- shift                      shift_type DEFAULT 'DAY' NOT NULL
+- timing                     VARCHAR(100) NULL
+- radius_km                  NUMERIC(4, 1) DEFAULT 1.0 NOT NULL
+- status                     job_status DEFAULT 'ACTIVE' NOT NULL
+- close_reason               job_close_reason NULL
+- location                   GEOGRAPHY(Point, 4326) NULL -- inherited from employer
+- created_at                 TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
+- updated_at                 TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
+
+CONSTRAINTS & INDEXES:
+- PK: PRIMARY KEY (id)
+- FK: FOREIGN KEY (employer_id) REFERENCES employer_profiles(user_id)
+- SPATIAL INDEX: idx_jobs_location USING GIST (location)
+- COMPOSITE INDEX: idx_jobs_search ON jobs(trade, profession, status, created_at DESC)
+
+LIFECYCLE & HIRING STATE MACHINE:
+- Created -> ACTIVE -> Edited via `PATCH /jobs/{id}` (editable: experience, salary, shift, timing, radius; trade & profession immutable).
+- Employer selects worker (`POST /jobs/{id}/hire`): `jobs.status` IMMEDIATELY transitions to `CLOSED` because the job is no longer available to other workers.
+- If hire confirmation resolves to `MISMATCH`, the job REMAINS `CLOSED` (no automatic reopening). The employer must post a new job to search again.
+
+-------------------------------------------------------------------------------
+7. TABLE: job_interests
+-------------------------------------------------------------------------------
+Description: Applications/interest registered by workers on jobs.
+
+COLUMNS:
+- id             UUID PRIMARY KEY DEFAULT gen_random_uuid()
+- job_id         UUID NOT NULL REFERENCES jobs(id) ON DELETE CASCADE
+- worker_id      UUID NOT NULL REFERENCES worker_profiles(user_id) ON DELETE CASCADE
+- match_score    NUMERIC(5, 2) NOT NULL -- Snapshot of Match Intelligence % at time of interest
+- status         application_status DEFAULT 'NOTIFIED' NOT NULL
+- created_at     TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
+- updated_at     TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
+
+CONSTRAINTS & INDEXES:
+- PK: PRIMARY KEY (id)
+- UQ: UNIQUE (job_id, worker_id) -- Prevents duplicate applications
+- FK: FOREIGN KEY (job_id) REFERENCES jobs(id)
+- FK: FOREIGN KEY (worker_id) REFERENCES worker_profiles(user_id)
+- COMPOSITE INDEX: idx_job_interests_funnel ON job_interests(job_id, status)
+
+-------------------------------------------------------------------------------
+8. TABLE: hire_confirmations
+-------------------------------------------------------------------------------
+Description: Two-sided hire confirmation lifecycle.
+
+COLUMNS:
+- id                  UUID PRIMARY KEY DEFAULT gen_random_uuid()
+- job_id              UUID NOT NULL REFERENCES jobs(id) ON DELETE CASCADE
+- worker_id           UUID NOT NULL REFERENCES worker_profiles(user_id) ON DELETE CASCADE
+- employer_confirmed  BOOLEAN DEFAULT TRUE NOT NULL
+- worker_confirmed    BOOLEAN NULL -- NULL until worker responds
+- status              hire_status DEFAULT 'PENDING' NOT NULL
+- confirmed_at        TIMESTAMP WITH TIME ZONE NULL
+- created_at          TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
+
+CONSTRAINTS & INDEXES:
+- PK: PRIMARY KEY (id)
+- UQ: UNIQUE (job_id, worker_id)
+- FK: FOREIGN KEY (job_id) REFERENCES jobs(id)
+- FK: FOREIGN KEY (worker_id) REFERENCES worker_profiles(user_id)
+
+EXPLICIT LIFECYCLE & STATE MACHINE:
+1. Employer selects a worker (`POST /jobs/{id}/hire`): A `hire_confirmations` record is created (`employer_confirmed = true`, `worker_confirmed = NULL`, `status = PENDING`) AND the job status IMMEDIATELY becomes `CLOSED`.
+2. Worker responds YES (`POST /hire-confirmations/{id}/respond` `{ confirmed: true }`): `worker_confirmed = true`, `status = CONFIRMED`. The hire is fully confirmed.
+3. Worker responds NO (`POST /hire-confirmations/{id}/respond` `{ confirmed: false }`): `worker_confirmed = false`, `status = MISMATCH`. The hire is NOT confirmed. THE JOB REMAINS `CLOSED` (does not automatically reopen). Auto-writes an `audit_logs` record (`HIRE_MISMATCH_FLAGGED`) for admin review.
+
+-------------------------------------------------------------------------------
+9. TABLE: reports
+-------------------------------------------------------------------------------
+Description: One-directional abuse complaints submitted by users.
+
+COLUMNS:
+- id           UUID PRIMARY KEY DEFAULT gen_random_uuid()
+- reporter_id  UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE
+- reported_id  UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE
+- reason       report_reason NOT NULL
+- details      TEXT NULL
+- created_at   TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
+
+CONSTRAINTS & INDEXES:
+- PK: PRIMARY KEY (id)
+- FK: FOREIGN KEY (reporter_id) REFERENCES users(id)
+- FK: FOREIGN KEY (reported_id) REFERENCES users(id)
+- INDEX: idx_reports_reported ON reports(reported_id)
+
+CONFIDENTIALITY & ACCESS CONTROL (BR-005):
+- Reports are strictly confidential and role-access restricted to Admins via Flow 07; reported users NEVER see report contents or reporter identity.
+- Database encrypted at rest.
+
+-------------------------------------------------------------------------------
+10. TABLE: audit_logs
+-------------------------------------------------------------------------------
+Description: Immutable system audit log trail.
+
+COLUMNS:
+- id           UUID PRIMARY KEY DEFAULT gen_random_uuid()
+- actor_id     UUID NULL REFERENCES users(id) ON DELETE SET NULL -- NULL for system actions
+- action       VARCHAR(100) NOT NULL
+- metadata     JSONB DEFAULT '{}'::jsonb NOT NULL
+- created_at   TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
+
+CONSTRAINTS & INDEXES:
+- PK: PRIMARY KEY (id)
+- FK: FOREIGN KEY (actor_id) REFERENCES users(id)
+- INDEX: idx_audit_logs_actor ON audit_logs(actor_id, created_at DESC)
+- INDEX: idx_audit_logs_action ON audit_logs(action)
+===============================================================================

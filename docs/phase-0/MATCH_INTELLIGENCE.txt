@@ -1,0 +1,164 @@
+===============================================================================
+KAAMSETU — MATCH INTELLIGENCE SCORING SPECIFICATION (REVISED v1.1)
+===============================================================================
+Document Version: 1.1 (Updated with Phase 0.1 Resolved Decisions)
+Authoritative Inputs: Technical Build Specification v1.0 (Section 5) & Wireframes v7.0
+Target Location: /docs/phase-0/MATCH_INTELLIGENCE.txt
+
+===============================================================================
+1. ALGORITHM WEIGHTING BREAKDOWN
+===============================================================================
+
+Every match between a worker and a job/employer requirement is assigned a total
+Match Score between 0% and 100%. The score is calculated using five weighted factors:
+
++------------------------+--------+-------------------------------------------+
+| Factor                 | Weight | Calculation Logic                         |
++------------------------+--------+-------------------------------------------+
+| 1. Trade Match         |  35%   | Binary: 35% if match, 0% if no match      |
+| 2. Profession Match    |  30%   | Binary: 30% if match, 0% if no match      |
+| 3. Experience Score    |  15%   | Scaled linear credit based on required    |
+| 4. Distance Score      |  15%   | Linear decay within radius (0 outside)    |
+| 5. Availability Score  |   5%   | Binary: 5% if available, 0% if expired    |
++------------------------+--------+-------------------------------------------+
+| TOTAL MAXIMUM SCORE    | 100%   |                                           |
++------------------------+--------+-------------------------------------------+
+
+CRITICAL RULE ON SPECIFIED ALGORITHM WEIGHTS:
+The algorithm weighting above is fixed and immutable for MVP. There is no custom
+radius-weight calibration or dynamic re-weighting in the MVP specification.
+Any percentage shown in wireframe mockups (e.g. 94%) is strictly an illustrative UI
+placeholder example. Implementation math strictly follows the 35/30/15/15/5 formula.
+
+===============================================================================
+2. FACTOR CALCULATION RULES
+===============================================================================
+
+-------------------------------------------------------------------------------
+FACTOR 1: TRADE MATCH (35%)
+-------------------------------------------------------------------------------
+Rule: Checks if the worker has previous experience in the requested job trade.
+- IF worker has at least one record in `worker_experience` where `trade == job.trade`:
+    Score_Trade = 35.0%
+- ELSE:
+    Score_Trade = 0.0%
+
+-------------------------------------------------------------------------------
+FACTOR 2: PROFESSION MATCH (30%)
+-------------------------------------------------------------------------------
+Rule: Checks if the worker has held the specific role within the trade.
+- IF worker has at least one record in `worker_experience` where `trade == job.trade` AND `profession == job.profession`:
+    Score_Profession = 30.0%
+- ELSE:
+    Score_Profession = 0.0%
+
+-------------------------------------------------------------------------------
+FACTOR 3: EXPERIENCE RELEVANCE SCORE (15%)
+-------------------------------------------------------------------------------
+Rule: Compares total experience in years against the required experience.
+- IF `total_experience_years >= experience_required_years`:
+    Score_Experience = 15.0%
+- ELSE IF `experience_required_years > 0`:
+    Score_Experience = 15.0 * (total_experience_years / experience_required_years)
+- ELSE:
+    Score_Experience = 15.0% (if 0 years required, full credit given)
+
+-------------------------------------------------------------------------------
+FACTOR 4: DISTANCE SCORE (15%) & RADIUS EXCLUSION
+-------------------------------------------------------------------------------
+Rule: Distance `d` is measured in kilometers between worker location and job location using PostGIS `ST_Distance`.
+CRITICAL EXCLUSION RULE:
+- IF `d > job.radius_km`:
+    WORKER IS COMPLETELY EXCLUDED FROM SEARCH RESULTS / MATCH MATCHING (Score = 0%, dropped from result set).
+- IF `d <= job.radius_km`:
+    Score_Distance = 15.0 * (1.0 - (d / job.radius_km))
+
+Example: If required radius is 1.0 km:
+- Distance 0.0 km -> 15.0%
+- Distance 0.5 km -> 7.5%
+- Distance 0.8 km -> 3.0%
+- Distance 1.0 km -> 0.0%
+- Distance 1.1 km -> EXCLUDED FROM RESULTS ENTIRELY
+
+-------------------------------------------------------------------------------
+FACTOR 5: AVAILABILITY SCORE (5%)
+-------------------------------------------------------------------------------
+Rule: Checks if worker availability toggle is active and unexpired.
+- IF `is_available == TRUE` AND `available_until > NOW()`:
+    Score_Availability = 5.0%
+- ELSE:
+    Score_Availability = 0.0%
+
+===============================================================================
+3. HYPOTHETICAL WORKED EXAMPLES (EXACT ALGORITHM MATH)
+===============================================================================
+
+-------------------------------------------------------------------------------
+EXAMPLE A: HIGH MATCH (Raj Kumar vs Sharma Electricals)
+-------------------------------------------------------------------------------
+Job Requirements:
+- Trade: ELECTRICAL
+- Profession: HELPER
+- Required Experience: 2.0 years
+- Radius: 1.0 km
+
+Worker Profile (Raj Kumar):
+- Experience: 5.0 years in ELECTRICAL / HELPER
+- Distance: 0.8 km
+- Availability: Available now (`is_available = true`, `available_until` in future)
+
+Calculation Breakdown:
+1. Trade Match:        35.0%  (ELECTRICAL == ELECTRICAL)
+2. Profession Match:   30.0%  (HELPER == HELPER)
+3. Experience Score:   15.0%  (5.0 yrs >= 2.0 yrs required)
+4. Distance Score:      3.0%  (15.0 * (1.0 - 0.8/1.0) = 15 * 0.2 = 3.0%)
+5. Availability Score:  5.0%  (Available now)
+-------------------------------------------------------------------------------
+TOTAL MATCH SCORE:    88.0%  (Displayed as 88.0%)
+
+-------------------------------------------------------------------------------
+EXAMPLE B: PARTIAL MATCH (Mohan Lal)
+-------------------------------------------------------------------------------
+Worker Profile (Mohan Lal):
+- Experience: 1.0 year in ELECTRICAL / HELPER
+- Distance: 0.5 km
+- Availability: Available now
+
+Calculation Breakdown:
+1. Trade Match:        35.0%  (ELECTRICAL == ELECTRICAL)
+2. Profession Match:   30.0%  (HELPER == HELPER)
+3. Experience Score:    7.5%  (15.0 * (1.0 / 2.0) = 7.5%)
+4. Distance Score:      7.5%  (15.0 * (1.0 - 0.5/1.0) = 7.5%)
+5. Availability Score:  5.0%  (Available now)
+-------------------------------------------------------------------------------
+TOTAL MATCH SCORE:    85.0%  (Displayed as 85.0%)
+
+-------------------------------------------------------------------------------
+EXAMPLE C: RADIUS EXCLUSION (Suresh V.)
+-------------------------------------------------------------------------------
+Worker Profile (Suresh V.):
+- Experience: 5.0 years in ELECTRICAL / HELPER
+- Distance: 1.6 km
+- Availability: Unavailable (`is_available = false`)
+
+Calculation Breakdown:
+- Distance (1.6 km) > Job Radius (1.0 km).
+-------------------------------------------------------------------------------
+RESULT: COMPLETELY EXCLUDED FROM SEARCH RESULTS (0 records returned for Suresh V. in 1km search).
+
+===============================================================================
+4. ARCHITECTURAL LOCATION & SNAPSHOTTING
+===============================================================================
+
+HYBRID ARCHITECTURE DESIGN:
+1. PostGIS Query Layer (Filtering & Distance Math):
+   The database executes spatial filtering (`ST_DWithin`) and trade/profession matching to select candidate worker rows efficiently using indexes.
+
+2. Backend Application Layer (Scoring Engine):
+   Spring Boot computes exact factor breakdowns and final percentage scores in memory to ensure microsecond calculation speeds and clean business logic isolation.
+
+3. Database Snapshotting Rule:
+   At query time (Search / Home), scores are dynamic.
+   WHEN A WORKER EXPRESSES INTEREST in a job (`POST /api/v1/jobs/{id}/interest`), the calculated match percentage MUST BE SNAPSHOTTED into `job_interests.match_score`.
+   Historical application records MUST ALWAYS render the snapshotted score, preventing retroactive changes if the worker updates their profile later.
+===============================================================================

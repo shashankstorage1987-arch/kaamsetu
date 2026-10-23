@@ -1,0 +1,61 @@
+===============================================================================
+KAAMSETU — NON-FUNCTIONAL REQUIREMENTS & QUALITY ATTRIBUTES (REVISED v1.5)
+===============================================================================
+Document Version: 1.5 (Reconciled Phase 0.5 Final Lock Pass)
+Authoritative Inputs: KaamSetu Technical Build Specification v1.0 & Wireframes v7.0
+Target Location: /docs/phase-0/NON_FUNCTIONAL_REQUIREMENTS.txt
+
+===============================================================================
+1. PERFORMANCE & RESPONSE TIME REQUIREMENTS
+===============================================================================
+- Search API Response Time Target: The primary worker discovery endpoint (`GET /api/v1/search/workers`) MUST return scored worker results within 1.0 second under a concurrent load of 100 active queries against a dataset of 1,000 active worker profiles.
+- Spatial Query Efficiency: All PostGIS spatial distance calculations MUST utilize GiST indexes (`idx_worker_location`, `idx_employer_location`) on PostGIS geography `Point(lon, lat, 4326)` columns. Spatial queries MUST NOT execute unindexed table scans.
+- Database Connection Pooling: Backend database connections MUST be managed via HikariCP pool (minimum 10 connections, maximum 30 connections) with a connection timeout threshold of 30,000ms.
+- Client-Side Rendering Speed: Next.js pages MUST render First Contentful Paint (FCP) within 1.5 seconds on standard 3G mobile networks.
+
+===============================================================================
+2. SECURITY, PRIVACY & DATA INTEGRITY REQUIREMENTS
+===============================================================================
+- Password & PIN Hashing: All user 6-digit authentication PINs MUST be hashed using bcrypt (cost factor 10+) or Argon2 before database persistence. Raw PINs MUST NEVER be logged, cached, or stored in plaintext.
+- Strict Aadhaar Data Privacy Rule (BR-Aadhaar):
+  * The raw 12-digit Aadhaar number may be transmitted only as part of the secure verification request required by the Aadhaar verification service. It MUST NEVER be persisted in the KaamSetu database, written to application logs, returned in any API response, stored in browser/local/session storage, included in audit metadata, or otherwise retained after verification processing.
+  * System performs verification against integration provider, persisting `aadhaar_verified = TRUE` and external verification reference token `aadhaar_ref_id` ONLY.
+  * Discard raw 12-digit Aadhaar from memory immediately after verification call processing.
+- Contact Number Shielding: Worker phone numbers MUST NOT be exposed in search results or profile list payloads. Phone numbers are revealed ONLY when an employer explicitly calls `GET /api/v1/workers/{id}/contact`, triggering an audit log entry.
+- Rate Limiting: Authentication endpoints (`POST /auth/login`, `POST /auth/signup/*`) MUST enforce rate limiting via Redis (maximum 5 failed login attempts per 15 minutes per mobile number) to prevent brute-force attacks.
+- Audit Logging: Security-sensitive actions (Worker registration, Contact reveal, Job edit, Hire confirmation, User suspension) MUST write immutable log entries to `audit_logs` table.
+
+===============================================================================
+3. PROGRESSIVE WEB APP (PWA) & OFFLINE REQUIREMENTS
+===============================================================================
+- App Shell Caching: Service Worker must cache the Next.js app shell, static assets, fonts, and icons for instant offline launch.
+- Dynamic Data Caching: Service worker uses Network First strategy with Stale-While-Revalidate fallback to cache the last-fetched Home and Search API payloads.
+- Graceful Offline Behavior: When `navigator.onLine` is false:
+  * Application displays the Offline Mode toast banner (Flow 11.5).
+  * Cached content is explicitly labeled "(cached)".
+  * Interactive controls requiring network (Availability toggle switch) are safely disabled with an explanatory tooltip.
+- Push Notifications & Multi-Device Token Persistence: Firebase Cloud Messaging (FCM) Web Push tokens persisted in dedicated `user_devices` table supporting multi-device registrations per user (Phase 1 creates `user_devices` table in DB foundation; Phase 7 handles FCM Web Push token registration, multi-device persistence, and push delivery). Each device has its own token identity. Logging out (`POST /auth/logout`) deactivates ONLY the calling device's active FCM token (`active = false`) in Phase 7. Other active devices belonging to the user remain registered and active. FCM tokens MUST NEVER be exposed in normal user API responses.
+
+===============================================================================
+4. USER EXPERIENCE & LOW-LITERACY DESIGN SYSTEM REQUIREMENTS
+===============================================================================
+- Minimum Touch Target Size: Every interactive element (buttons, cards, toggle switches, tags, navigation items) MUST enforce a minimum touch target dimension of 44px x 44px for low-literacy usability on touch screens.
+- Mobile Viewport Target: Responsive web interface optimized for mobile viewports (~375px to 414px width), ready for seamless embedding into native Android/iOS WebView shells.
+- Typography Minimums: Production UI text MUST enforce a minimum font size of 14px (small monospace annotations in wireframes are documentation-only notes, not UI specs).
+- Single Primary Action Rule: Every screen MUST present exactly ONE dominant primary action button (e.g., "Search Workers", "Verify & Continue", "I'm Interested"), minimizing cognitive load.
+- Visual Labeling: All text labels MUST be paired with recognizable icons to support users with low digital literacy.
+
+===============================================================================
+5. SCALABILITY & DEFERRED ARCHITECTURE BOUNDARIES
+===============================================================================
+- Explicitly In-Scope for Pilot Scale:
+  * Single Spring Boot backend instance.
+  * Single PostgreSQL database with PostGIS extension for spatial queries and `user_devices` table (10 total tables).
+  * Single Redis instance for session state and rate limiting.
+  * Standard AWS S3 bucket for media storage.
+- Explicitly Deferred (Post-Pilot Scale):
+  * Microservices architecture (Monolithic REST API is mandated for pilot).
+  * Container orchestrators (Docker / Kubernetes deferred).
+  * Dedicated search clusters (Elasticsearch / OpenSearch deferred; PostGIS handles pilot search scale).
+  * Multi-region database replication (Single region Noida pilot).
+===============================================================================

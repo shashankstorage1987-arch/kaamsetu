@@ -1,0 +1,525 @@
+===============================================================================
+KAAMSETU — SCREEN TRACEABILITY MATRIX (REVISED v1.5)
+===============================================================================
+Document Version: 1.5 (Reconciled Phase 0.5 Final Lock Pass)
+Authoritative Inputs: KaamSetu Wireframes v7.0 & Technical Build Specification v1.0
+Target Location: /docs/phase-0/SCREEN_TRACEABILITY.txt
+
+This matrix maps every wireframe screen to its backend API, database entities,
+business rules, external integrations, validations, and test requirements.
+All Phase 0 gaps have been reconciled and resolved.
+
+===============================================================================
+1. FLOW 01: LOGIN, SIGN UP & WORKER ONBOARDING
+===============================================================================
+
+-------------------------------------------------------------------------------
+Screen: 1.0 Login (kaamsetu.app/login)
+-------------------------------------------------------------------------------
+User Flow: Flow 01 — Login & Sign Up
+Backend API: POST /api/v1/auth/login
+Database Entity: users
+Business Rules:
+- PIN, not OTP, is the everyday login mechanism (BR-006).
+- Account locked temporarily after 5 failed attempts in 15 minutes.
+External Integration: Redis (rate limiting)
+Validation: Phone number 10 digits, PIN 6 numeric digits.
+Test Requirement: Verify successful login with valid credentials, failed login with invalid PIN, rate limit lockout after 5 failed attempts.
+
+-------------------------------------------------------------------------------
+Screen: 1.0b Sign Up Choice (kaamsetu.app/signup)
+-------------------------------------------------------------------------------
+User Flow: Flow 01 — Login & Sign Up
+Backend API: NOT DEFINED IN SOURCE (Client-side routing view)
+Database Entity: None
+Business Rules: User chooses role (WORKER or EMPLOYER) to determine onboarding path.
+External Integration: None
+Validation: Selection required.
+Test Requirement: Verify navigation to Worker Sign Up (1.1) vs Employer Sign Up (3.1).
+
+-------------------------------------------------------------------------------
+Screen: 1.1 Worker Sign Up (kaamsetu.app/signup/worker)
+-------------------------------------------------------------------------------
+User Flow: Flow 01 — Worker Onboarding
+Backend API: POST /api/v1/auth/signup/worker
+Database Entity: users (`aadhaar_verified`, `aadhaar_ref_id`)
+Business Rules:
+- Worker verification is ID-only (Aadhaar reference) for MVP (BR-003).
+- The raw 12-digit Aadhaar number may be transmitted only as part of the secure verification request required by the Aadhaar verification service. It MUST NEVER be persisted in the KaamSetu database, written to application logs, returned in any API response, stored in browser/local/session storage, included in audit metadata, or otherwise retained after verification processing (BR-Aadhaar). Only `aadhaar_verified = TRUE` and verification reference string (`aadhaar_ref_id`) are stored.
+- Plaintext PIN must never be stored; hash using bcrypt/argon2.
+External Integration: Aadhaar Verification Provider (Mock/Stub for MVP - marked `PENDING INTEGRATION DECISION`)
+Validation: Full name non-empty, phone 10 digits, PIN 6 digits matching Re-enter, Aadhaar 12 digits.
+Test Requirement: Verify account creation, password hashing, duplicate phone rejection, Aadhaar non-persistence.
+
+-------------------------------------------------------------------------------
+Screen: 1.2 Work Experience — Skill Passport 1/3 (kaamsetu.app/onboard/experience)
+-------------------------------------------------------------------------------
+User Flow: Flow 01 — Worker Onboarding & Profile Edit
+Backend API: PATCH /api/v1/workers/me
+Database Entity: worker_profiles, worker_experience
+Business Rules:
+- Core skills and experience are self-reported and unverified (BR-003).
+- Multiple shop experiences supported per worker.
+- Re-visited during Profile Edit mode from Worker Self-Profile (4.2).
+External Integration: None
+Validation: Total experience numeric, Trade & Profession selected from taxonomy, previous employer non-empty, languages selected.
+Test Requirement: Verify saving experience array, trade taxonomy adherence, profile edit updates.
+
+Database Entity: worker_experience, worker_profiles
+Business Rules: Captures total experience, trade, profession, previous shop, languages (BR-003).
+External Integration: None
+Validation: Total experience numeric positive, primary trade required, profession required, at least 1 language.
+Test Requirement: Verify experience entries saved, multiple experience rows created.
+
+-------------------------------------------------------------------------------
+Screen: 1.3 Worker Address — Skill Passport 2/3 (kaamsetu.app/onboard/address)
+-------------------------------------------------------------------------------
+User Flow: Flow 01 — Worker Onboarding & Profile Edit
+Backend API: PATCH /api/v1/workers/me
+Database Entity: worker_profiles.location
+Business Rules: Address text geocoded to PostGIS geography Point(lon, lat).
+External Integration: Google Maps Geocoding API
+Validation: House/street, area/locality, city non-empty, pincode 6 digits.
+Test Requirement: Verify geocoding integration, PostGIS Point conversion, geocoding failure handling.
+
+-------------------------------------------------------------------------------
+Screen: 1.4 Job Preferences — Skill Passport 3/3 (kaamsetu.app/onboard/preferences)
+-------------------------------------------------------------------------------
+User Flow: Flow 01 — Worker Onboarding & Profile Edit
+Backend API: PATCH /api/v1/workers/me
+Database Entity: worker_profiles
+Business Rules: Setting Available Now toggle stores initial profile preference (`is_available` boolean) during onboarding in Phase 1. It does NOT invoke `PATCH /api/v1/workers/me/availability` or start the Phase 3 real-time availability auto-expiry engine (BR-002).
+External Integration: None
+Validation: Preferred salary numeric positive, preferred distance numeric positive.
+Test Requirement: Verify saving preferences, initial availability toggle status.
+
+===============================================================================
+2. FLOW 02: WORKER HOME
+===============================================================================
+
+-------------------------------------------------------------------------------
+Screen: 2.1 Worker Home — Available State (kaamsetu.app/home)
+-------------------------------------------------------------------------------
+User Flow: Flow 02 — Worker Home
+Backend API: GET /api/v1/workers/me/home, PATCH /api/v1/workers/me/availability
+Database Entity: worker_profiles, jobs, worker_experience
+Business Rules:
+- Renders 4 sections: Best Match Today, Closest Opportunity, Highest Salary Nearby, Recently Viewed Jobs.
+- Match Intelligence percentage computed via 5 weighted factors.
+- Tapping Bottom Nav PROFILE navigates to Worker Self-Profile view on 4.2.
+External Integration: PostGIS spatial engine
+Validation: None
+Test Requirement: Verify recommendation section scoring, distance calculations, live countdown timer.
+
+-------------------------------------------------------------------------------
+Screen: 2.2 Worker Home — Expired / Unavailable State (kaamsetu.app/home)
+-------------------------------------------------------------------------------
+User Flow: Flow 02 — Worker Home
+Backend API: PATCH /api/v1/workers/me/availability, GET /api/v1/workers/me/home
+Database Entity: worker_profiles
+Business Rules: Server-side query-time availability filter treats `available_until < NOW()` as unavailable (BR-002).
+External Integration: Redis (availability TTL)
+Validation: None
+Test Requirement: Verify automatic UI state switch upon availability expiration, turning availability back ON.
+
+-------------------------------------------------------------------------------
+Screen: 2.3 Job Match Notification Modal (kaamsetu.app/home)
+-------------------------------------------------------------------------------
+User Flow: Flow 02 — Worker Home
+Backend API: GET /api/v1/jobs/{id}
+Database Entity: jobs, worker_profiles
+Business Rules: Triggered when new job posted matching worker's trade, profession, radius, and availability.
+External Integration: Firebase Cloud Messaging (Web Push)
+Validation: None
+Test Requirement: Verify Web Push payload handling, modal rendering, navigation to job detail.
+
+-------------------------------------------------------------------------------
+Screen: 2.4 Job Detail (kaamsetu.app/jobs/{id})
+-------------------------------------------------------------------------------
+User Flow: Flow 02 — Worker Home
+Backend API: GET /api/v1/jobs/{id}, POST /api/v1/jobs/{id}/interest
+Database Entity: jobs, employer_profiles, job_interests
+Business Rules:
+- Displays explicit Match Intelligence breakdown (5 factors).
+- Displays job shift (Day / Night) and timing.
+- Tapping "I'm Interested" snapshots `match_score` into `job_interests` (BR-Match).
+External Integration: PostGIS (distance check)
+Validation: Job must be in ACTIVE status.
+Test Requirement: Verify match breakdown accuracy, snapshotting match score upon expressing interest, duplicate interest handling.
+
+===============================================================================
+3. FLOW 03: EMPLOYER REGISTRATION & PROFILE EDIT
+===============================================================================
+
+-------------------------------------------------------------------------------
+Screen: 3.1 Employer Sign Up (kaamsetu.app/signup/employer)
+-------------------------------------------------------------------------------
+User Flow: Flow 03 — Employer Registration
+Backend API: POST /api/v1/auth/signup/employer
+Database Entity: users, employer_profiles
+Business Rules:
+- Employer verification is phone-only (BR-007).
+- PIN hashed via bcrypt/argon2.
+External Integration: None
+Validation: Business name, owner name non-empty, phone 10 digits, PIN 6 digits matching Re-enter.
+Test Requirement: Verify employer account creation, password security, phone uniqueness.
+
+-------------------------------------------------------------------------------
+Screen: 3.2 Business Details (kaamsetu.app/onboard/business)
+-------------------------------------------------------------------------------
+User Flow: Flow 03 — Employer Registration & Profile Edit
+Backend API: GET/PATCH /api/v1/employers/me
+Database Entity: employer_profiles
+Business Rules:
+- Re-used in pre-filled edit mode when employer accesses PROFILE bottom-nav tab post-onboarding (BR-EmpProfile).
+- Displays optional shop photo placeholder UI per wireframe. No actual S3 upload API (`POST /api/v1/media/upload-url`) is invoked in Phase 1 (deferred to Phase 7). Photo upload is optional and does not block onboarding.
+External Integration: None in Phase 1 (AWS S3 integration in Phase 7)
+Validation: Business Trade selected, years in business numeric positive.
+Test Requirement: Verify profile update, pre-filled edit mode loading.
+
+-------------------------------------------------------------------------------
+Screen: 3.3 Business Address (kaamsetu.app/onboard/business-address)
+-------------------------------------------------------------------------------
+User Flow: Flow 03 — Employer Registration & Profile Edit
+Backend API: PATCH /api/v1/employers/me
+Database Entity: employer_profiles (location field)
+Business Rules: Geocodes business address to PostGIS Point(lon, lat, 4326) as search center point. Re-used in pre-filled edit mode post-onboarding.
+External Integration: Google Maps Geocoding API
+Validation: Street, area, city non-empty, pincode 6 digits.
+Test Requirement: Verify business address geocoding, PostGIS location updates.
+
+===============================================================================
+4. FLOW 04: EMPLOYER SEARCH — PRIMARY ACTION
+===============================================================================
+
+-------------------------------------------------------------------------------
+Screen: 4.1 Search & Filters (kaamsetu.app/search)
+-------------------------------------------------------------------------------
+User Flow: Flow 04 — Employer Search
+Backend API: GET /api/v1/search/workers
+Database Entity: worker_profiles, worker_experience, users
+Business Rules:
+- Search is the primary employer discovery mechanism (BR-001).
+- Opens with employer's business trade as default filter.
+- Workers outside radius are excluded entirely.
+- Expired availability workers excluded when Available Now filter active.
+External Integration: PostGIS (`ST_DWithin`, `ST_Distance`)
+Validation: Search radius > 0.
+Test Requirement: Verify dynamic multi-filter SQL queries, response time < 1s, distance filtering accuracy.
+
+-------------------------------------------------------------------------------
+Screen: 4.2 Skill Passport (kaamsetu.app/worker/{id})
+-------------------------------------------------------------------------------
+User Flow: Flow 04 — Employer Search & Worker Self-Profile
+Backend API: GET /api/v1/workers/{id}, GET /api/v1/workers/{id}/contact (Employer view only)
+Database Entity: worker_profiles, worker_experience, hire_confirmations, audit_logs
+Business Rules:
+- Dual perspective screen:
+  * Employer View: Displays "View Contact Number" and "Report this worker". Contact number returned ONLY upon explicit GET /workers/{id}/contact call (creates audit log).
+  * Worker Self-View: Omits Contact Reveal & Report links; displays prominent "Edit Profile" button routing to 1.2/1.3/1.4 (BR-WorkerProfile).
+- "Shop categories worked in" derived dynamically from unique `trade` ENUMs in `worker_experience` (BR-ShopCategories).
+- "Recently completed hires" calculated dynamically via `COUNT(hire_confirmations)` in 3-month window (BR-HiresCount).
+External Integration: None
+Validation: Authenticated session required.
+Test Requirement: Verify employer view vs worker self-view rendering, masked phone number response, derived shop categories, dynamic hires count.
+
+-------------------------------------------------------------------------------
+Screen: 4.3 No Match — Zero State (kaamsetu.app/search)
+-------------------------------------------------------------------------------
+User Flow: Flow 04 — Employer Search
+Backend API: GET /api/v1/search/workers (returns 0 results)
+Database Entity: None
+Business Rules:
+- "Widen Search" advances radius along fixed progression: 1km -> 3km -> 5km -> 10km (capped at 10km) (BR-WidenSearch).
+- Posting a job is framed strictly as a fallback when search returns zero workers (BR-001).
+External Integration: None
+Validation: Radius progression capped at 10km.
+Test Requirement: Verify zero-result handling, radius progression advancement, navigation to Widen Search vs Post Job Fallback (5.1).
+
+===============================================================================
+5. FLOW 05: EMPLOYER JOB POSTING — FALLBACK
+===============================================================================
+
+-------------------------------------------------------------------------------
+Screen: 5.1 Post a Job Need — Fallback Form (kaamsetu.app/jobs/new)
+-------------------------------------------------------------------------------
+User Flow: Flow 05 — Fallback Job Posting
+Backend API: POST /api/v1/jobs
+Database Entity: jobs, employer_profiles
+Business Rules:
+- Fallback workflow linked from zero search results or dashboard footer.
+- Requires mandatory `shift` ENUM (`DAY` / `NIGHT`, default: `DAY`).
+- Job location auto-inherited from employer business profile location.
+External Integration: Firebase Cloud Messaging (worker notifications)
+Validation: Trade, profession, experience, salary, shift, timing mandatory.
+Test Requirement: Verify job creation, shift field persistence, spatial indexing of job, push notification dispatching to matching workers.
+
+-------------------------------------------------------------------------------
+Screen: 5.2 Active Search Progress (kaamsetu.app/jobs/{id})
+-------------------------------------------------------------------------------
+User Flow: Flow 05 — Fallback Job Posting
+Backend API: GET /api/v1/jobs/{id}/manage
+Database Entity: jobs, job_interests, worker_profiles
+Business Rules: Visualizes live hiring funnel counts (Notified -> Viewed -> Interested -> Hired).
+External Integration: None
+Validation: Employer must own the job.
+Test Requirement: Verify hiring funnel aggregation metrics, interested workers list rendering.
+
+===============================================================================
+6. FLOW 06: EMPLOYER DASHBOARD & JOB MANAGEMENT
+===============================================================================
+
+-------------------------------------------------------------------------------
+Screen: 6.1 Employer Dashboard (kaamsetu.app/dashboard)
+-------------------------------------------------------------------------------
+User Flow: Flow 06 — Employer Dashboard
+Backend API: GET /api/v1/employers/me/dashboard
+Database Entity: employer_profiles, jobs, job_interests, hire_confirmations
+Business Rules:
+- "Search Nearby Skilled Workers" is top primary CTA; Post Job is secondary link (BR-001).
+- First-time empty state for new employers with 0 jobs displays standard empty icon + explanation + Search primary CTA (BR-EmptyState).
+- PROFILE bottom-nav tab opens Business Details (3.2 & 3.3) in pre-filled edit mode.
+External Integration: None
+Validation: None
+Test Requirement: Verify dashboard metric aggregations, active job list with mini funnel counts, empty state rendering.
+
+-------------------------------------------------------------------------------
+Screen: 6.2 Job Detail & Hiring Funnel (kaamsetu.app/jobs/{id}/manage)
+-------------------------------------------------------------------------------
+User Flow: Flow 06 — Employer Dashboard
+Backend API: GET /api/v1/jobs/{id}/manage, PATCH /api/v1/jobs/{id}
+Database Entity: jobs, job_interests, worker_profiles, audit_logs
+Business Rules:
+- Renders applicant list sorted by Match Intelligence score.
+- Tapping "Edit Job" opens pre-filled modal calling `PATCH /api/v1/jobs/{id}` (editing experience, salary, shift, timing, radius; trade & profession immutable) (BR-EditJob).
+- Successful edit writes a `JOB_UPDATED` audit log and updates matching engine.
+- CLOSED jobs cannot be edited.
+External Integration: None
+Validation: Employer ownership authorization.
+Test Requirement: Verify applicant list rendering, job editing API execution, audit log creation, blocking edits on closed jobs.
+
+-------------------------------------------------------------------------------
+Screen: 6.3 Close Job Reason Modal (kaamsetu.app/jobs/{id}/close)
+-------------------------------------------------------------------------------
+User Flow: Flow 06 — Employer Dashboard
+Backend API: PATCH /api/v1/jobs/{id}/close (for HIRED_ELSEWHERE and NO_LONGER_HIRING only)
+Database Entity: jobs
+Business Rules: Captures close_reason (HIRED_ELSEWHERE, NO_LONGER_HIRING). Selecting HIRED_VIA_KAAMSETU routes to Screen 6.4.
+External Integration: None
+Validation: Reason selection mandatory.
+Test Requirement: Verify closing job with non-KaamSetu reasons, routing to worker selection (6.4) for KaamSetu hires.
+
+-------------------------------------------------------------------------------
+Screen: 6.4 Select Hired Worker (kaamsetu.app/jobs/{id}/close/select)
+-------------------------------------------------------------------------------
+User Flow: Flow 06 — Employer Dashboard
+Backend API: POST /api/v1/jobs/{id}/hire
+Database Entity: jobs, hire_confirmations, job_interests
+Business Rules:
+- Selecting a worker calls `POST /jobs/{id}/hire`, which atomically: (1) validates that the selected worker expressed interest, (2) creates a `hire_confirmations` record (`employer_confirmed = true`, `worker_confirmed = NULL`, `status = PENDING`), (3) sets `jobs.status = CLOSED` and `jobs.close_reason = HIRED_VIA_KAAMSETU`, (4) generates HIRE_INITIATED audit entry, and (5) triggers worker notification flow (BR-004).
+- There is NO secondary call to `PATCH /api/v1/jobs/{id}/close`.
+External Integration: Firebase Cloud Messaging (prompts worker)
+Validation: Selected worker must have expressed interest in the job.
+Test Requirement: Verify atomic creation of `hire_confirmations` row with status PENDING, transition of job status to CLOSED with close_reason HIRED_VIA_KAAMSETU, sending confirmation prompt to worker.
+
+===============================================================================
+7. FLOW 07: ADMIN CONSOLE
+===============================================================================
+
+-------------------------------------------------------------------------------
+Screen: 7.1 Admin Overview (kaamsetu.app/admin)
+-------------------------------------------------------------------------------
+User Flow: Flow 07 — Admin Console
+Backend API: GET /api/v1/admin/overview
+Database Entity: users, worker_profiles, employer_profiles, jobs, hire_confirmations
+Business Rules: North Star metric calculation: median hire time in minutes.
+External Integration: SQL aggregation engine
+Validation: Requires ADMIN role authority.
+Test Requirement: Verify pilot KPI calculation accuracy, admin authorization guard rails.
+
+-------------------------------------------------------------------------------
+Screen: 7.2 Manage Users (kaamsetu.app/admin/users)
+-------------------------------------------------------------------------------
+User Flow: Flow 07 — Admin Console
+Backend API: GET /api/v1/admin/users
+Database Entity: users, worker_profiles, employer_profiles
+Business Rules: Admin can filter and search all registered workers and employers.
+External Integration: None
+Validation: Admin role required.
+Test Requirement: Verify user list filtering by role and text search.
+
+-------------------------------------------------------------------------------
+Screen: 7.3 User Detail & Suspension (kaamsetu.app/admin/users/{id})
+-------------------------------------------------------------------------------
+User Flow: Flow 07 — Admin Console
+Backend API: GET /api/v1/admin/users/{id}, PATCH /api/v1/admin/users/{id}/suspend
+Database Entity: users, reports, audit_logs
+Business Rules:
+- Suspending a user immediately blocks login and hides them from search.
+- Suspension generates an audit log entry.
+External Integration: None
+Validation: Admin role required.
+Test Requirement: Verify user suspension, reinstatement, audit log entry, login blocking for suspended accounts.
+
+-------------------------------------------------------------------------------
+Screen: 7.4 Audit Logs (kaamsetu.app/admin/logs)
+-------------------------------------------------------------------------------
+User Flow: Flow 07 — Admin Console
+Backend API: GET /api/v1/admin/logs (with optional query parameters: `actor_id`, `action`, `start_date`, `end_date`)
+Database Entity: audit_logs
+Business Rules: System audit log viewer supporting optional multi-parameter filtering (BR-AuditFilter).
+External Integration: None
+Validation: Admin role required.
+Test Requirement: Verify audit log timeline query, filtering by actor, action, and date range.
+
+===============================================================================
+8. FLOW 08: REPORT
+===============================================================================
+
+-------------------------------------------------------------------------------
+Screen: 8.1 Report — Select Reason (kaamsetu.app/report/{id})
+-------------------------------------------------------------------------------
+User Flow: Flow 08 — Report User
+Backend API: NOT DEFINED IN SOURCE (Wizard step 1 local state)
+Database Entity: Target user
+Business Rules: Selects reason (NO_SHOW, FAKE_EXPERIENCE, INAPPROPRIATE_BEHAVIOR, OTHER).
+External Integration: None
+Validation: Reason selection mandatory.
+Test Requirement: Verify wizard step navigation.
+
+-------------------------------------------------------------------------------
+Screen: 8.2 Report — Add Details (kaamsetu.app/report/{id}/details)
+-------------------------------------------------------------------------------
+User Flow: Flow 08 — Report User
+Backend API: POST /api/v1/reports
+Database Entity: reports
+Business Rules: Reports are strictly confidential and role-access restricted; reported users NEVER see report contents or reporter identity (BR-005). Database encrypted at rest.
+External Integration: None
+Validation: None (details optional).
+Test Requirement: Verify report submission, database insertion, anonymity protection.
+
+-------------------------------------------------------------------------------
+Screen: 8.3 Report Submitted Confirmation (kaamsetu.app/report/confirmation)
+-------------------------------------------------------------------------------
+User Flow: Flow 08 — Report User
+Backend API: NOT DEFINED IN SOURCE (Client-side view)
+Database Entity: None
+Business Rules: Confirmation display.
+External Integration: None
+Validation: None
+Test Requirement: Verify return to Home button.
+
+===============================================================================
+9. FLOW 09: HIRE CONFIRMATION
+===============================================================================
+
+-------------------------------------------------------------------------------
+Screen: 9.1 Two-Sided Hire Confirmation Prompt (kaamsetu.app/home)
+-------------------------------------------------------------------------------
+User Flow: Flow 09 — Two-Sided Hire Confirmation
+Backend API: GET /api/v1/hire-confirmations/pending, POST /api/v1/hire-confirmations/{id}/respond
+Database Entity: hire_confirmations, jobs
+Business Rules:
+- Employer selection creates `hire_confirmations` (`employer_confirmed = true`, `worker_confirmed = NULL`, `status = PENDING`) AND sets `jobs.status = CLOSED`.
+- Worker responds YES (`confirmed = true`): `worker_confirmed = true`, `status = CONFIRMED`. Hire is fully confirmed (BR-004).
+- Worker responds NO (`confirmed = false`): `worker_confirmed = false`, `status = MISMATCH`. The hire is NOT confirmed. The job remains `CLOSED` (does not automatically reopen). Auto-generates `HIRE_MISMATCH_FLAGGED` in `audit_logs` for admin review (BR-004).
+External Integration: Firebase Cloud Messaging
+Validation: Pending confirmation must exist.
+Test Requirement: Verify worker confirming -> status CONFIRMED; worker denying -> status MISMATCH & audit log while job remains CLOSED.
+
+-------------------------------------------------------------------------------
+Screen: 9.2 Hire Confirmed Success Screen (kaamsetu.app/home)
+-------------------------------------------------------------------------------
+User Flow: Flow 09 — Two-Sided Hire Confirmation
+Backend API: NOT DEFINED IN SOURCE (Client-side view)
+Database Entity: worker_profiles
+Business Rules: Confirmed hire increments "Recently completed hires" count calculated dynamically on Skill Passport.
+External Integration: None
+Validation: None
+Test Requirement: Verify navigation to My Applications.
+
+===============================================================================
+10. FLOW 10: MY APPLICATIONS
+===============================================================================
+
+-------------------------------------------------------------------------------
+Screen: 10.1 My Applications (kaamsetu.app/applications)
+-------------------------------------------------------------------------------
+User Flow: Flow 10 — Worker Applications
+Backend API: GET /api/v1/workers/me/applications
+Database Entity: job_interests, jobs, employer_profiles
+Business Rules: Displays list of applied jobs with snapshotted match % and current job status.
+External Integration: None
+Validation: None
+Test Requirement: Verify rendering application trail, displaying snapshotted match score.
+
+===============================================================================
+11. FLOW 11: SYSTEM & EDGE-CASE STATES
+===============================================================================
+
+-------------------------------------------------------------------------------
+Screen: 11.1 Forgot PIN (kaamsetu.app/forgot-pin)
+-------------------------------------------------------------------------------
+User Flow: Flow 11 — System States
+Backend API: POST /api/v1/auth/forgot-pin/request-otp, POST /api/v1/auth/forgot-pin/reset
+Database Entity: users
+Business Rules: OTP is used EXCLUSIVELY for Forgot PIN recovery (BR-006).
+External Integration: SMS Gateway (OTP delivery)
+Validation: Mobile 10 digits, OTP 6 digits, PIN 6 digits matching Re-enter.
+Test Requirement: Verify OTP generation, SMS dispatch mock, PIN reset completion.
+
+-------------------------------------------------------------------------------
+Screen: 11.2 Location Permission Prompt (kaamsetu.app/permissions)
+-------------------------------------------------------------------------------
+User Flow: Flow 11 — System States
+Backend API: NOT DEFINED IN SOURCE (Browser API integration)
+Database Entity: None
+Business Rules: Explains value proposition of location access before browser prompt.
+External Integration: Browser Geolocation API
+Validation: None
+Test Requirement: Verify granting vs denying location permission handling.
+
+-------------------------------------------------------------------------------
+Screen: 11.3 Notification Permission Prompt (kaamsetu.app/permissions)
+-------------------------------------------------------------------------------
+User Flow: Flow 11 — System States
+Backend API: N/A in Phase 1 (UI state handling only); POST /api/v1/users/me/fcm-token in Phase 7
+Database Entity: user_devices (Schema creation in Phase 1; operational token persistence in Phase 7)
+Business Rules: Phase 1 handles browser permission UI states (Allow/Not Now/Denied). Phase 7 integrates FCM Web Push SDK, registering device token into user_devices upon approval.
+External Integration: Browser Notification API (Phase 1); Firebase Cloud Messaging SDK (Phase 7)
+Validation: None
+Test Requirement: Verify permission UI prompt states (Phase 1); verify FCM token registration and user_devices persistence (Phase 7).
+
+-------------------------------------------------------------------------------
+Screen: 11.4 First-Time Empty State — Applications (kaamsetu.app/applications)
+-------------------------------------------------------------------------------
+User Flow: Flow 11 — System States
+Backend API: GET /api/v1/workers/me/applications (returns empty array)
+Database Entity: None
+Business Rules: Renders guidance UI when worker has 0 job applications.
+External Integration: None
+Validation: None
+Test Requirement: Verify zero applications view rendering.
+
+-------------------------------------------------------------------------------
+Screen: 11.5 Offline Mode Banner & Cached View (kaamsetu.app/home)
+-------------------------------------------------------------------------------
+User Flow: Flow 11 — System States
+Backend API: Service Worker Cache Storage
+Database Entity: IndexedDB / Cache Storage
+Business Rules: Offline mode displays cached results labeled "(cached)" and disables availability toggle.
+External Integration: Service Worker
+Validation: navigator.onLine === false
+Test Requirement: Verify offline service worker caching, banner display, interactive controls disabling.
+
+-------------------------------------------------------------------------------
+Screen: 11.6 Session Timeout Screen (kaamsetu.app/login)
+-------------------------------------------------------------------------------
+User Flow: Flow 11 — System States
+Backend API: POST /api/v1/auth/login
+Database Entity: users
+Business Rules: Triggered upon JWT expiration (24h default) or 401 Unauthorized response.
+External Integration: None
+Validation: PIN 6 numeric digits.
+Test Requirement: Verify 401 interceptor redirection, re-authentication restoring previous session context.
+===============================================================================
