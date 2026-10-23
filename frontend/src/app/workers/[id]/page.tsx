@@ -7,6 +7,7 @@ import Button from '@/components/Button';
 import Input from '@/components/Input';
 import { useParams, useRouter } from 'next/navigation';
 import { useLanguage } from '@/context/LanguageContext';
+import { API_BASE_URL } from '@/config/api';
 import {
   User,
   ShieldCheck,
@@ -160,7 +161,7 @@ export default function WorkerSkillPassportPage() {
       const token = localStorage.getItem('kaamsetu_token');
       const langArray = editLanguages ? editLanguages.split(',').map((l) => l.trim()).filter(Boolean) : [];
 
-      const res = await fetch('http://localhost:8080/api/v1/workers/me', {
+      const res = await fetch(`${API_BASE_URL}/api/v1/workers/me`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -204,7 +205,7 @@ export default function WorkerSkillPassportPage() {
       setLoading(true);
       try {
         const token = localStorage.getItem('kaamsetu_token');
-        const res = await fetch(`http://localhost:8080/api/v1/workers/${workerId}`, {
+        const res = await fetch(`${API_BASE_URL}/api/v1/workers/${workerId}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
 
@@ -235,7 +236,7 @@ export default function WorkerSkillPassportPage() {
     setRevealing(true);
     try {
       const token = localStorage.getItem('kaamsetu_token');
-      const res = await fetch(`http://localhost:8080/api/v1/workers/${workerId}/reveal-contact`, {
+      const res = await fetch(`${API_BASE_URL}/api/v1/workers/${workerId}/reveal-contact`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -305,7 +306,7 @@ export default function WorkerSkillPassportPage() {
           const base64Data = canvas.toDataURL('image/jpeg', 0.85);
 
           const token = localStorage.getItem('kaamsetu_token');
-          const res = await fetch('http://localhost:8080/api/v1/workers/me/photo', {
+          const res = await fetch(`${API_BASE_URL}/api/v1/workers/me/photo`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',

@@ -6,6 +6,7 @@ import Header from '@/components/Header';
 import Button from '@/components/Button';
 import { useRouter } from 'next/navigation';
 import { useLanguage } from '@/context/LanguageContext';
+import { API_BASE_URL } from '@/config/api';
 import {
   Briefcase,
   Building2,
@@ -59,7 +60,7 @@ export default function WorkerApplicationsPage() {
   const fetchApplications = async () => {
     try {
       const token = localStorage.getItem('kaamsetu_token');
-      const res = await fetch('http://localhost:8080/api/v1/workers/me/applications', {
+      const res = await fetch(`${API_BASE_URL}/api/v1/workers/me/applications`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 

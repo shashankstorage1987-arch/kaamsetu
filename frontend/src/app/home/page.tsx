@@ -7,6 +7,7 @@ import Button from '@/components/Button';
 import { UserCheck, ShieldCheck, Clock, MapPin, Briefcase, LogOut, Power, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useLanguage } from '@/context/LanguageContext';
+import { API_BASE_URL } from '@/config/api';
 
 interface AvailabilityData {
   isAvailable?: boolean;
@@ -39,8 +40,8 @@ export default function WorkerHomePage() {
       const headers = { Authorization: `Bearer ${token}` };
 
       const [profRes, availRes] = await Promise.all([
-        fetch('http://localhost:8080/api/v1/workers/me', { headers }),
-        fetch('http://localhost:8080/api/v1/workers/me/availability', { headers }),
+        fetch(`${API_BASE_URL}/api/v1/workers/me`, { headers }),
+        fetch(`${API_BASE_URL}/api/v1/workers/me/availability`, { headers }),
       ]);
 
       if (profRes.ok) {
@@ -93,7 +94,7 @@ export default function WorkerHomePage() {
     setToggling(true);
     try {
       const token = localStorage.getItem('kaamsetu_token');
-      const res = await fetch('http://localhost:8080/api/v1/workers/me/availability', {
+      const res = await fetch(`${API_BASE_URL}/api/v1/workers/me/availability`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -126,7 +127,7 @@ export default function WorkerHomePage() {
   const handleLogout = async () => {
     try {
       const token = localStorage.getItem('kaamsetu_token');
-      await fetch('http://localhost:8080/api/v1/auth/logout', {
+      await fetch(`${API_BASE_URL}/api/v1/auth/logout`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       });

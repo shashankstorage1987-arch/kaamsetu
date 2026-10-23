@@ -9,6 +9,7 @@ import PinInput from '@/components/PinInput';
 import Button from '@/components/Button';
 import { Phone, KeyRound, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { useLanguage } from '@/context/LanguageContext';
+import { API_BASE_URL } from '@/config/api';
 
 export default function ForgotPinPage() {
   const router = useRouter();
@@ -44,7 +45,7 @@ export default function ForgotPinPage() {
 
     setLoading(true);
     try {
-      const res = await fetch('http://localhost:8080/api/v1/auth/forgot-pin/request-otp', {
+      const res = await fetch(`${API_BASE_URL}/api/v1/auth/forgot-pin/request-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -93,7 +94,7 @@ export default function ForgotPinPage() {
 
     setLoading(true);
     try {
-      const res = await fetch('http://localhost:8080/api/v1/auth/forgot-pin/reset', {
+      const res = await fetch(`${API_BASE_URL}/api/v1/auth/forgot-pin/reset`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

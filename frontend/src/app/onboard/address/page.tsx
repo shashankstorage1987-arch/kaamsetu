@@ -8,6 +8,7 @@ import Input from '@/components/Input';
 import Button from '@/components/Button';
 import { MapPin, Navigation, Crosshair, CheckCircle2 } from 'lucide-react';
 import { useLanguage } from '@/context/LanguageContext';
+import { API_BASE_URL } from '@/config/api';
 
 export default function WorkerAddressPage() {
   const router = useRouter();
@@ -73,7 +74,7 @@ export default function WorkerAddressPage() {
     try {
       const token = localStorage.getItem('kaamsetu_token');
 
-      const res = await fetch('http://localhost:8080/api/v1/workers/me', {
+      const res = await fetch(`${API_BASE_URL}/api/v1/workers/me`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',

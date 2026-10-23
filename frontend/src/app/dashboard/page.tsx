@@ -7,6 +7,7 @@ import Button from '@/components/Button';
 import { Store, MapPin, Briefcase, Search, Plus, LogOut, ChevronRight, CheckCircle2, XCircle, Users, ArrowRight, X, Edit3, Clock, Phone, Sparkles } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useLanguage } from '@/context/LanguageContext';
+import { API_BASE_URL } from '@/config/api';
 
 interface JobSummary {
   jobId: string;
@@ -74,7 +75,7 @@ export default function EmployerDashboardPage() {
     setLoadingHiredWorkers(true);
     try {
       const token = localStorage.getItem('kaamsetu_token');
-      const res = await fetch('http://localhost:8080/api/v1/employers/me/hired-workers', {
+      const res = await fetch(`${API_BASE_URL}/api/v1/employers/me/hired-workers`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
@@ -106,8 +107,8 @@ export default function EmployerDashboardPage() {
         const headers = { Authorization: `Bearer ${token}` };
 
         const [profRes, dashRes] = await Promise.all([
-          fetch('http://localhost:8080/api/v1/employers/me', { headers }),
-          fetch('http://localhost:8080/api/v1/employers/me/dashboard', { headers }),
+          fetch(`${API_BASE_URL}/api/v1/employers/me`, { headers }),
+          fetch(`${API_BASE_URL}/api/v1/employers/me/dashboard`, { headers }),
         ]);
 
         if (profRes.ok) {
@@ -131,7 +132,7 @@ export default function EmployerDashboardPage() {
   const handleLogout = async () => {
     try {
       const token = localStorage.getItem('kaamsetu_token');
-      await fetch('http://localhost:8080/api/v1/auth/logout', {
+      await fetch(`${API_BASE_URL}/api/v1/auth/logout`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       });

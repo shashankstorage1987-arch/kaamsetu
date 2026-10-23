@@ -8,6 +8,7 @@ import Input from '@/components/Input';
 import { useRouter } from 'next/navigation';
 import { AlertCircle, Briefcase, DollarSign, Clock, MapPin, ChevronDown, CheckCircle2 } from 'lucide-react';
 import { useLanguage } from '@/context/LanguageContext';
+import { API_BASE_URL } from '@/config/api';
 
 const TRADE_OPTIONS = [
   { label: 'Electrical Shop', value: 'ELECTRICAL' },
@@ -83,7 +84,7 @@ export default function PostJobPage() {
 
     try {
       const token = localStorage.getItem('kaamsetu_token');
-      const res = await fetch('http://localhost:8080/api/v1/jobs', {
+      const res = await fetch(`${API_BASE_URL}/api/v1/jobs`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

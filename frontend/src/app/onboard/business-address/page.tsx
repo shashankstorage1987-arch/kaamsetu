@@ -8,6 +8,7 @@ import Input from '@/components/Input';
 import Button from '@/components/Button';
 import { MapPin, Navigation, Crosshair, CheckCircle2, Loader2 } from 'lucide-react';
 import { useLanguage } from '@/context/LanguageContext';
+import { API_BASE_URL } from '@/config/api';
 
 export default function BusinessAddressPage() {
   const router = useRouter();
@@ -41,7 +42,7 @@ export default function BusinessAddressPage() {
         const token = localStorage.getItem('kaamsetu_token');
         if (!token) return;
 
-        const res = await fetch('http://localhost:8080/api/v1/employers/me', {
+        const res = await fetch(`${API_BASE_URL}/api/v1/employers/me`, {
           headers: { Authorization: `Bearer ${token}` },
         });
 
@@ -112,7 +113,7 @@ export default function BusinessAddressPage() {
     try {
       const token = localStorage.getItem('kaamsetu_token');
 
-      const res = await fetch('http://localhost:8080/api/v1/employers/me', {
+      const res = await fetch(`${API_BASE_URL}/api/v1/employers/me`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',

@@ -8,6 +8,7 @@ import Input from '@/components/Input';
 import Button from '@/components/Button';
 import { Camera, Clock, Users, Upload, X, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { useLanguage } from '@/context/LanguageContext';
+import { API_BASE_URL } from '@/config/api';
 
 const TRADES = [
   { id: 'ELECTRICAL', label: 'Electrical Shop' },
@@ -51,7 +52,7 @@ export default function BusinessDetailsPage() {
         const token = localStorage.getItem('kaamsetu_token');
         if (!token) return;
 
-        const res = await fetch('http://localhost:8080/api/v1/employers/me', {
+        const res = await fetch(`${API_BASE_URL}/api/v1/employers/me`, {
           headers: { Authorization: `Bearer ${token}` },
         });
 
@@ -145,7 +146,7 @@ export default function BusinessDetailsPage() {
 
           const token = localStorage.getItem('kaamsetu_token');
           if (token) {
-            const res = await fetch('http://localhost:8080/api/v1/employers/me/photo', {
+            const res = await fetch(`${API_BASE_URL}/api/v1/employers/me/photo`, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
@@ -201,7 +202,7 @@ export default function BusinessDetailsPage() {
       const token = localStorage.getItem('kaamsetu_token');
       const rolesArray = roles ? roles.split(',').map((r) => r.trim()).filter(Boolean) : [];
 
-      const res = await fetch('http://localhost:8080/api/v1/employers/me', {
+      const res = await fetch(`${API_BASE_URL}/api/v1/employers/me`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',

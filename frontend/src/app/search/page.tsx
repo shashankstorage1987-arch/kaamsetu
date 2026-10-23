@@ -6,6 +6,7 @@ import Header from '@/components/Header';
 import Button from '@/components/Button';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useLanguage } from '@/context/LanguageContext';
+import { API_BASE_URL } from '@/config/api';
 import {
   Search,
   MapPin,
@@ -195,8 +196,8 @@ function SearchContent() {
           return;
         }
         const endpoint = role === 'EMPLOYER'
-          ? 'http://localhost:8080/api/v1/employers/me'
-          : 'http://localhost:8080/api/v1/workers/me';
+          ? `${API_BASE_URL}/api/v1/employers/me`
+          : `${API_BASE_URL}/api/v1/workers/me`;
 
         const res = await fetch(endpoint, {
           headers: { Authorization: `Bearer ${token}` }
@@ -261,7 +262,7 @@ function SearchContent() {
         if (verifiedOnly) queryParams.append('verified', 'true');
         if (similarShopOnly) queryParams.append('similarShop', 'true');
 
-        const res = await fetch(`http://localhost:8080/api/v1/search/workers?${queryParams.toString()}`, {
+        const res = await fetch(`${API_BASE_URL}/api/v1/search/workers?${queryParams.toString()}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
 
@@ -272,7 +273,7 @@ function SearchContent() {
           setCandidates([]);
         }
       } else {
-        const res = await fetch(`http://localhost:8080/api/v1/search/jobs?${queryParams.toString()}`, {
+        const res = await fetch(`${API_BASE_URL}/api/v1/search/jobs?${queryParams.toString()}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
 

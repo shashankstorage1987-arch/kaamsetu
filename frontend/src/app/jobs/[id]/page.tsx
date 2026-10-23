@@ -7,6 +7,7 @@ import Button from '@/components/Button';
 import Input from '@/components/Input';
 import { useParams, useRouter } from 'next/navigation';
 import { useLanguage } from '@/context/LanguageContext';
+import { API_BASE_URL } from '@/config/api';
 import {
   Briefcase,
   DollarSign,
@@ -87,7 +88,7 @@ export default function JobDetailPage() {
   const fetchJob = useCallback(async () => {
     try {
       const token = localStorage.getItem('kaamsetu_token');
-      const res = await fetch(`http://localhost:8080/api/v1/jobs/${jobId}`, {
+      const res = await fetch(`${API_BASE_URL}/api/v1/jobs/${jobId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
@@ -102,7 +103,7 @@ export default function JobDetailPage() {
 
         // Fetch live applicants count
         try {
-          const appRes = await fetch(`http://localhost:8080/api/v1/jobs/${jobId}/applicants`, {
+          const appRes = await fetch(`${API_BASE_URL}/api/v1/jobs/${jobId}/applicants`, {
             headers: { Authorization: `Bearer ${token}` },
           });
           if (appRes.ok) {
@@ -164,7 +165,7 @@ export default function JobDetailPage() {
     setUpdating(true);
     try {
       const token = localStorage.getItem('kaamsetu_token');
-      const res = await fetch(`http://localhost:8080/api/v1/jobs/${jobId}`, {
+      const res = await fetch(`${API_BASE_URL}/api/v1/jobs/${jobId}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -196,7 +197,7 @@ export default function JobDetailPage() {
     setClosing(true);
     try {
       const token = localStorage.getItem('kaamsetu_token');
-      const res = await fetch(`http://localhost:8080/api/v1/jobs/${jobId}/close`, {
+      const res = await fetch(`${API_BASE_URL}/api/v1/jobs/${jobId}/close`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',

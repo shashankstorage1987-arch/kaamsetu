@@ -8,6 +8,7 @@ import Input from '@/components/Input';
 import Button from '@/components/Button';
 import { IndianRupee, MapPin, CheckCircle2 } from 'lucide-react';
 import { useLanguage } from '@/context/LanguageContext';
+import { API_BASE_URL } from '@/config/api';
 
 export default function WorkerPreferencesPage() {
   const router = useRouter();
@@ -55,7 +56,7 @@ export default function WorkerPreferencesPage() {
 
       // Phase 1 Onboarding Boundary: stores is_available boolean preference only.
       // available_until remains NULL.
-      const res = await fetch('http://localhost:8080/api/v1/workers/me', {
+      const res = await fetch(`${API_BASE_URL}/api/v1/workers/me`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -79,7 +80,7 @@ export default function WorkerPreferencesPage() {
       // If worker marked themselves available, activate the 12-hour availability window immediately
       if (isAvailableNow) {
         try {
-          const availRes = await fetch('http://localhost:8080/api/v1/workers/me/availability', {
+          const availRes = await fetch(`${API_BASE_URL}/api/v1/workers/me/availability`, {
             method: 'PATCH',
             headers: {
               'Content-Type': 'application/json',

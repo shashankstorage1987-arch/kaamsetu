@@ -8,6 +8,7 @@ import Input from '@/components/Input';
 import Button from '@/components/Button';
 import { Briefcase, Building, Clock, Wrench, Sparkles, Info } from 'lucide-react';
 import { useLanguage } from '@/context/LanguageContext';
+import { API_BASE_URL } from '@/config/api';
 
 const TRADES = [
   { id: 'ELECTRICAL', label: 'Electrical Shop' },
@@ -88,7 +89,7 @@ export default function WorkExperiencePage() {
         core_skills: coreSkillsArray,
       };
 
-      const res = await fetch('http://localhost:8080/api/v1/workers/me', {
+      const res = await fetch(`${API_BASE_URL}/api/v1/workers/me`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',

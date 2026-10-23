@@ -6,6 +6,7 @@ import Header from '@/components/Header';
 import Button from '@/components/Button';
 import { useParams, useRouter } from 'next/navigation';
 import { useLanguage } from '@/context/LanguageContext';
+import { API_BASE_URL } from '@/config/api';
 import {
   Users,
   Briefcase,
@@ -96,8 +97,8 @@ export default function JobApplicantsPage() {
       const headers = { Authorization: `Bearer ${token}` };
 
       const [appsRes, jobRes] = await Promise.all([
-        fetch(`http://localhost:8080/api/v1/jobs/${jobId}/applicants`, { headers }),
-        fetch(`http://localhost:8080/api/v1/jobs/${jobId}`, { headers }),
+        fetch(`${API_BASE_URL}/api/v1/jobs/${jobId}/applicants`, { headers }),
+        fetch(`${API_BASE_URL}/api/v1/jobs/${jobId}`, { headers }),
       ]);
 
       if (jobRes.ok) {
@@ -131,7 +132,7 @@ export default function JobApplicantsPage() {
 
     try {
       const token = localStorage.getItem('kaamsetu_token');
-      const res = await fetch(`http://localhost:8080/api/v1/jobs/${jobId}/hire`, {
+      const res = await fetch(`${API_BASE_URL}/api/v1/jobs/${jobId}/hire`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -169,7 +170,7 @@ export default function JobApplicantsPage() {
   const handleRejectCandidate = async (workerId: string) => {
     try {
       const token = localStorage.getItem('kaamsetu_token');
-      const res = await fetch(`http://localhost:8080/api/v1/jobs/${jobId}/applicants/${workerId}/reject`, {
+      const res = await fetch(`${API_BASE_URL}/api/v1/jobs/${jobId}/applicants/${workerId}/reject`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       });

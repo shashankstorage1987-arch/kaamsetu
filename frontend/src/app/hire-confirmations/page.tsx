@@ -6,6 +6,7 @@ import Header from '@/components/Header';
 import Button from '@/components/Button';
 import { useRouter } from 'next/navigation';
 import { useLanguage } from '@/context/LanguageContext';
+import { API_BASE_URL } from '@/config/api';
 import {
   UserCheck,
   Building2,
@@ -64,7 +65,7 @@ export default function WorkerHireConfirmationsPage() {
   const fetchConfirmations = async () => {
     try {
       const token = localStorage.getItem('kaamsetu_token');
-      const res = await fetch('http://localhost:8080/api/v1/hire-confirmations/me', {
+      const res = await fetch(`${API_BASE_URL}/api/v1/hire-confirmations/me`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
@@ -90,7 +91,7 @@ export default function WorkerHireConfirmationsPage() {
     setSubmittingId(confId);
     try {
       const token = localStorage.getItem('kaamsetu_token');
-      const res = await fetch(`http://localhost:8080/api/v1/hire-confirmations/${confId}/response`, {
+      const res = await fetch(`${API_BASE_URL}/api/v1/hire-confirmations/${confId}/response`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',

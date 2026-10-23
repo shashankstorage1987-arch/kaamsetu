@@ -9,6 +9,7 @@ import PinInput from '@/components/PinInput';
 import Button from '@/components/Button';
 import { Store, User, Phone, AlertCircle } from 'lucide-react';
 import { useLanguage } from '@/context/LanguageContext';
+import { API_BASE_URL } from '@/config/api';
 
 export default function EmployerSignUpPage() {
   const router = useRouter();
@@ -52,7 +53,7 @@ export default function EmployerSignUpPage() {
 
     setLoading(true);
     try {
-      const res = await fetch('http://localhost:8080/api/v1/auth/signup/employer', {
+      const res = await fetch(`${API_BASE_URL}/api/v1/auth/signup/employer`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
